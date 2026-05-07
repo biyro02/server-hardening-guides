@@ -16,6 +16,7 @@
 6. [WPScan — Scheduled WordPress Scans](#6-wpscan--scheduled-wordpress-scans)
 7. [Automated Reporting Setup](#7-automated-reporting-setup)
 8. [Manual Audit Runbook](#8-manual-audit-runbook)
+9. [Operational Drift — Security Posture Over Time](#9-operational-drift--security-posture-over-time)
 
 ---
 
@@ -178,7 +179,13 @@ aide --update
 mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
 ```
 
-> **Note:** Store the AIDE database on a separate read-only volume or off-server. An attacker with root access can modify both the files and the AIDE database — defeating detection. Even a weekly rsync of the database to your local machine helps.
+> **Store the AIDE database off-server.** An attacker with root access can modify both the files and the AIDE database — defeating detection. Automate a daily copy to your backup machine:
+> ```bash
+> # /etc/cron.d/aide-offsite
+> 35 5 * * * root rsync -az /var/lib/aide/aide.db \
+>   backup-user@BACKUP_HOST:/opt/aide-db/aide.db.$(date +\%Y\%m\%d) 2>&1 | logger -t aide-offsite
+> ```
+> Keep 30 days of daily snapshots on the backup machine — if you need to investigate a breach, you can compare the current database against a snapshot from before the breach date.
 
 > **Docker volume path note:** AIDE monitors host filesystem paths. If WordPress uses Docker named volumes, the paths configured above (e.g. `/var/www/html/wp-config.php`, `/var/www/html/wp-includes`) may not exist on the host or may point to overlay filesystem layers that AIDE cannot traverse meaningfully. Find the actual host mount path: `docker inspect VOLUME_NAME | grep Mountpoint`. Paths typically look like `/var/lib/docker/volumes/appname_wordpress/_data`. Monitor those paths in `aide.conf` instead. Alternatively, run AIDE inside the container as part of a security scan script.
 
@@ -459,6 +466,27 @@ Register at app.crowdsec.net and enroll your CrowdSec instance for a web UI show
 docker exec myapp_crowdsec cscli console enroll YOUR_ENROLLMENT_KEY
 ```
 
+### Harden the Cloudflare API token file
+
+The `cf-bouncer.yaml` file contains your Cloudflare API token in plaintext on disk. An attacker who achieves file-read access post-compromise can steal the token and use it to modify your Cloudflare zone.
+
+```bash
+chmod 600 /path/to/crowdsec/cf-bouncer.yaml
+chown root:root /path/to/crowdsec/cf-bouncer.yaml
+```
+
+Additionally, in the Cloudflare Dashboard, **restrict the API token to your server's IP address:** My Profile → API Tokens → Edit token → **Client IP Address Filtering** → Add your VPS IP. This limits the blast radius if the token leaks: it will only work from your server, not from an attacker's machine.
+
+Rotate the token quarterly.
+
+### CrowdSec bans and Cloudflare bypass interaction
+
+CrowdSec's Cloudflare bouncer pushes banned IPs as block rules to **your** Cloudflare zone. This means banned IPs are blocked only for traffic routed through your zone's Cloudflare proxy.
+
+If an attacker bypasses Cloudflare and connects directly to your origin IP (via IP discovery + their own Cloudflare account or a direct HTTP request that passes UFW because it originates from a Cloudflare IP range), CrowdSec bans will not protect you — they only apply at the CF edge of your zone.
+
+**This is why the X-Origin-Verify mechanism in `cloudflare-hardening.md §1` is load-bearing for CrowdSec to be effective.** Without it, an attacker who finds your origin IP bypasses both your WAF rules and your CrowdSec bans simultaneously.
+
 ---
 
 ## 6. WPScan — Scheduled WordPress Scans
@@ -620,6 +648,97 @@ echo "=== Audit complete ==="
 ```
 
 Save as `/usr/local/bin/security-audit.sh`, `chmod +x`, and run when needed.
+
+---
+
+## 9. Operational Drift — Security Posture Over Time
+
+> Security is not a state, it is a process. Most small-team servers are well-hardened on day one and progressively less so over the following months. This section names the specific ways that drift happens and what to check.
+
+A server hardened today will have measurably weaker security in 6–12 months under normal maintenance patterns. The following checklist is designed for a **quarterly review** — 2-3 hours per quarter is enough to catch most drift before it becomes a liability.
+
+### Cloudflare IP range drift
+
+Cloudflare periodically adds new IP ranges to `https://www.cloudflare.com/ips-v4` and `https://www.cloudflare.com/ips-v6`. UFW rules that allowlist Cloudflare IPs and nginx `set_real_ip_from` blocks become stale when new ranges are added.
+
+```bash
+# Check current CF IPs vs your nginx config quarterly
+curl -s https://www.cloudflare.com/ips-v4
+# Compare against set_real_ip_from blocks in your nginx CF config
+```
+
+Automate the UFW update (nginx requires a manual reload after):
+
+```bash
+# /etc/cron.monthly/update-cf-ips
+#!/bin/bash
+ufw --force reset
+# Re-apply all your standard rules, then:
+for IP in $(curl -s https://www.cloudflare.com/ips-v4); do ufw allow from $IP to any port 80,443 proto tcp; done
+for IP in $(curl -s https://www.cloudflare.com/ips-v6); do ufw allow from $IP to any port 80,443 proto tcp; done
+ufw enable
+```
+
+### Docker image version lag
+
+`docker compose pull` fetches newer tags within your pinned minor version (e.g. `wordpress:6.7-php8.3-fpm`). After 3+ months, running `docker images` and checking the `Created` date tells you how stale your images are.
+
+```bash
+docker images --format "table {{.Repository}}:{{.Tag}}\t{{.CreatedSince}}"
+docker compose pull && docker compose up -d  # pull and restart with latest patch
+```
+
+### Plugin update fatigue
+
+The most common WordPress breach pattern is not a sophisticated exploit — it is a vulnerable plugin that was not updated because "it still works." Check:
+
+```bash
+docker exec --user www-data WP_CONTAINER wp plugin list --update=available --format=table
+```
+
+If you have more than 2-3 outstanding updates, the plugins are not being maintained. Either automate updates or reduce the plugin count.
+
+### fail2ban jail health
+
+fail2ban jails can silently stop working after OS updates, log rotation changes, or Docker restarts. Quarterly check:
+
+```bash
+fail2ban-client status               # all jails
+fail2ban-client status nginx-wplogin # specific jail — check "Currently banned"
+grep "Ban\|Unban" /var/log/fail2ban.log | tail -20  # recent activity
+```
+
+If "Currently banned" is always zero and you have a public-facing site, the jail is likely broken.
+
+### Backup restore drill
+
+Run a partial restore drill quarterly. At minimum:
+
+```bash
+restic snapshots --repo YOUR_REPO | tail -5     # list recent snapshots
+restic restore SNAPSHOT_ID --target /tmp/restore-test --include "db*.sql.gz"
+gzip -t /tmp/restore-test/*.sql.gz && echo "OK"  # verify integrity
+rm -rf /tmp/restore-test
+```
+
+A backup that has never been successfully restored is not a backup. The first time you discover the passphrase is wrong or the snapshot is corrupted should not be during a real incident.
+
+### Certbot renewal health
+
+```bash
+certbot certificates
+# Check expiry dates — if any cert expires in < 30 days, renewal is broken
+systemctl status certbot.timer
+```
+
+### CrowdSec scenario updates
+
+```bash
+docker exec CROWDSEC_CONTAINER cscli hub update
+docker exec CROWDSEC_CONTAINER cscli hub upgrade
+```
+
+CrowdSec's threat intelligence (scenario files) should be updated regularly. Stale scenarios miss new attack patterns.
 
 ---
 

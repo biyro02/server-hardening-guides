@@ -101,6 +101,25 @@
 
 > Nginx is your first line of defense. Block known-bad endpoints, rate limit sensitive ones, and add security headers before the request ever reaches WordPress.
 
+- [ ] **Hide nginx version** to avoid disclosing exact version information to scanners.
+
+  ```nginx
+  server_tokens off;
+  ```
+
+  > Add to the `http` or `server` block. Pair with `expose_php = Off` in PHP config and `fastcgi_hide_header X-Powered-By` in fastcgi blocks for complete version suppression.
+
+- [ ] **Add a default server block that rejects direct-IP requests.** When nginx does not match a configured `server_name`, it falls back to the first defined server. A default `server` block that returns 444 (close connection without response) prevents `Host` header injection attacks and probing via the bare IP.
+
+  ```nginx
+  server {
+      listen 80 default_server;
+      listen [::]:80 default_server;
+      server_name _;
+      return 444;
+  }
+  ```
+
 - [ ] **Block WordPress installation and upgrade scripts** — these should never be accessible on a live site.
 
   ```nginx
@@ -150,6 +169,62 @@
       include fastcgi_params;
       fastcgi_pass wordpress:9000;
       fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+  }
+  ```
+
+- [ ] **Rate limit REST API write operations** to prevent brute-force attacks and flooding via the REST API. GET requests are not limited (they use an empty key which nginx ignores).
+
+  ```nginx
+  # Empty key for non-write methods = nginx ignores the zone (no rate limit on GETs)
+  map $request_method $rest_write_key {
+      default         "";
+      POST            $binary_remote_addr;
+      PUT             $binary_remote_addr;
+      DELETE          $binary_remote_addr;
+      PATCH           $binary_remote_addr;
+  }
+  limit_req_zone $rest_write_key zone=wprest_write:10m rate=15r/m;
+
+  location /wp-json/ {
+      limit_req zone=wprest_write burst=10 nodelay;
+      limit_req_status 429;
+      try_files $uri $uri/ /index.php?$args;
+  }
+  ```
+
+  > This protects against REST API auth brute-force (including via Application Passwords, covered in Section 5) and plugin RCE via REST endpoints. The `map` pattern avoids nginx's `if`-is-evil anti-pattern — requests with an empty key value are silently excluded from rate limiting.
+
+- [ ] **Rate limit WordPress search** to prevent search-DoS. An attacker can send hundreds of `?s=randomstring` requests per second, each triggering a full-text scan of `wp_posts` and locking the database.
+
+  ```nginx
+  # Only applies when ?s= parameter is present — other requests use empty key (no limit)
+  map $arg_s $search_rate_key {
+      default "";
+      ~.+     $binary_remote_addr;
+  }
+  limit_req_zone $search_rate_key zone=wpsearch:10m rate=10r/m;
+
+  # Apply in your catch-all PHP location block:
+  location ~ \.php$ {
+      limit_req zone=wpsearch burst=5 nodelay;
+      # ...
+  }
+  ```
+
+- [ ] **Rate limit the password reset endpoint** separately to prevent outbound mail spam. An attacker can submit hundreds of reset requests; WordPress sends an email for each valid username (by design — to avoid enumeration), turning your SMTP relay into a spam source.
+
+  ```nginx
+  map $arg_action $lostpw_key {
+      default      "";
+      lostpassword $binary_remote_addr;
+  }
+  limit_req_zone $lostpw_key zone=wplostpw:10m rate=2r/m;
+
+  location = /wp-login.php {
+      limit_req zone=wplostpw burst=2 nodelay;
+      limit_req zone=wplogin burst=2 nodelay;
+      limit_req_status 429;
+      # ...fastcgi config
   }
   ```
 
@@ -290,10 +365,12 @@
 - [ ] **Set `open_basedir`** to restrict PHP file access to the webroot and upload tmp directory only. This limits the damage if an attacker achieves code execution — they cannot read `/etc/passwd` or files outside the web directory.
 
   ```ini
-  open_basedir = /var/www/html:/tmp:/var/tmp
+  open_basedir = /var/www/html
   ```
 
-  > **In Docker:** Set this in your mounted `security.ini` file. Test carefully after enabling — some plugins perform legitimate file operations outside the webroot (e.g. writing to `/tmp`). If a plugin breaks, add its required path to `open_basedir` rather than disabling it.
+  > **Do not include `/tmp` or `/var/tmp` in `open_basedir`.** The session and upload temp paths are redirected to `/var/www/html/wp-content/tmp-*` (see below), so there is no legitimate reason for PHP to access `/tmp`. Leaving `/tmp` in `open_basedir` gives an attacker who achieves a write primitive a staging area outside the webroot.
+
+  > **In Docker:** Set this in your mounted `security.ini` file. Test carefully after enabling — some plugins perform legitimate file operations. If a plugin breaks, add its required path to `open_basedir` rather than disabling it entirely.
 
   > **Known bypass: `chdir` + `ini_set`**. If `chdir` and `ini_set` are available (not in `disable_functions`), an attacker can call `chdir('/')` followed by `ini_set('open_basedir', '/')` to remove the restriction entirely. If your plugin set does not require these functions in end-user code paths, add them to `disable_functions`. Note: WordPress core uses `chdir` in some admin flows and `ini_set` for memory limits — test thoroughly before disabling.
 
@@ -304,6 +381,34 @@
   ```
 
   > WordPress does not use FFI. If any plugin requires it, that is a red flag worth investigating before enabling.
+
+- [ ] **Disable PHAR write access** to prevent PHAR deserialization gadget chain attacks.
+
+  ```ini
+  phar.readonly = On
+  ```
+
+  > PHAR (PHP Archive) deserialization allows attackers to trigger `__destruct()` and `__wakeup()` magic methods via crafted PHAR file stream references, potentially leading to RCE through gadget chains in Composer-loaded dependencies. WordPress itself has been hardened against this in core, but plugins using older Composer packages can introduce gadget sinks. Setting `phar.readonly = On` prevents PHAR archive creation from PHP, significantly reducing the attack surface.
+
+- [ ] **Be aware of extension-based `disable_functions` bypasses** that do not go through standard PHP function calls.
+
+  **Imagick MSL bypass:** If the ImageMagick PHP extension is installed and `Imagick` class is available, an attacker can execute arbitrary OS commands via MSL scripts without touching any function in `disable_functions`:
+  ```php
+  $img = new Imagick();
+  $img->readImage('vid:msl:/tmp/pwn.msl');  // executes OS commands via MSL
+  ```
+  Mitigation: if you do not need image processing in PHP, do not install the `php-imagick` extension. If you do need it, ensure `open_basedir` restricts MSL file access.
+
+  **SQLite3 shell bypass:** The `SQLite3` class (if enabled) can execute OS commands via `.shell` mode:
+  ```php
+  $db = new SQLite3('/tmp/x.db');
+  $db->exec(".shell id");  // executes OS command
+  ```
+  This is not blocked by `disable_functions` — it requires `disable_classes`:
+  ```ini
+  disable_classes = SQLite3
+  ```
+  If your application does not use SQLite, add this to your `security.ini`.
 
 - [ ] **Isolate upload and session temp directories** per application.
 
@@ -434,6 +539,19 @@
 - [ ] **Configure fail2ban for WordPress login failures** (covered in the Linux hardening guide — verify the nginx-wplogin jail is active).
 
 - [ ] **Block XML-RPC entirely** (covered in Section 2 — xmlrpc.php returns 404).
+
+- [ ] **Disable WordPress Application Passwords** unless you are actively using them. Application Passwords (introduced in WordPress 5.6) allow REST API authentication via HTTP Basic Auth. If enabled, an attacker can brute-force admin credentials at `/wp-json/wp/v2/users/me` using standard HTTP requests — bypassing every `wp-login.php` rate limit, fail2ban rule, and WAF rule configured for the login page, because the requests go to `/wp-json/`, not `/wp-login.php`.
+
+  ```php
+  // In functions.php or a custom plugin:
+  add_filter('wp_is_application_passwords_available', '__return_false');
+  ```
+
+  > If you do use Application Passwords (e.g. for a headless WordPress setup), add a fail2ban filter for failed REST auth attempts:
+  > ```
+  > failregex = ^<HOST> .* "(GET|POST) /wp-json/.*" 401
+  > ```
+  > and apply it to your nginx access log.
 
 - [ ] **Do not disclose the WordPress admin URL** in error messages, comments, or meta tags.
 

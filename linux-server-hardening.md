@@ -173,6 +173,14 @@
   ufw default allow outgoing
   ```
 
+- [ ] **Block outbound SMTP (port 25)** to prevent a compromised container or script from using the server as a mail relay or sending spam directly to the internet. Legitimate outbound mail should go through your SMTP relay on port 587 (TLS).
+
+  ```bash
+  ufw deny out 25/tcp
+  ```
+
+  > Port 587 (SMTP submission) and 465 (SMTPS) do not need to be blocked — these go to your relay (Mailgun, SendGrid, Brevo) over TLS and are subject to the relay's own rate limits and abuse detection. Port 25 is direct mail-server-to-mail-server delivery, which a compromised host would use to spam directly.
+
 - [ ] **Allow only required ports** before enabling.
 
   ```bash
@@ -470,11 +478,51 @@
 
   > **`docker image prune -f` removes only dangling images** — untagged layers no longer referenced by any running or stopped container. It will not remove images for running containers. For a more aggressive cleanup after confirmed-clean deploys, `docker image prune -a -f` also removes stopped images; use with care since it requires re-pulling everything on the next deploy.
 
+- [ ] **Run containers as non-root and make the filesystem read-only.** These two settings together are the highest-impact Docker security controls: `read_only: true` makes the container's own filesystem layer immutable (named volumes remain writable); `user:` prevents a container escape from landing as root on the host.
+
+  ```yaml
+  services:
+    wordpress:
+      image: wordpress:X.Y-phpA.B-fpm
+      read_only: true
+      user: "33:33"          # www-data uid:gid in official WordPress image
+      tmpfs:
+        - /tmp:rw,nosuid,nodev,noexec,size=64m
+        - /run:rw,nosuid,nodev,noexec,size=8m
+      security_opt:
+        - no-new-privileges:true
+      cap_drop:
+        - ALL
+      cap_add:
+        - CHOWN
+        - SETUID
+        - SETGID
+        - DAC_OVERRIDE
+  ```
+
+  > **`read_only: true` with named volumes:** The named volume mount (e.g. `/var/www/html`) remains writable — only the container's own overlay layer is immutable. This means WordPress can still write uploads and update its database, but an attacker who achieves RCE cannot persist files in the container's own filesystem layer (e.g. writing to `/tmp` inside the container layer, or modifying installed binaries). Use `tmpfs` for PHP session and upload temp paths instead of the container filesystem.
+
+  > **`cap_drop: ALL` + `cap_add`:** Drop all Linux capabilities, then add back only what the process needs. `CHOWN`/`SETUID`/`SETGID`/`DAC_OVERRIDE` are typically required by PHP-FPM master process startup. Test with your specific image — the minimum set varies.
+
+- [ ] **Set container logging limits** to prevent log flooding from silently filling the host disk and disabling fail2ban.
+
+  ```yaml
+  services:
+    wordpress:
+      logging:
+        driver: json-file
+        options:
+          max-size: "10m"
+          max-file: "3"
+  ```
+
+  > Without this, a chatty container (e.g. a plugin generating warnings) fills `/var/lib/docker/containers/*/×-json.log` until the disk is full. When the disk fills, MariaDB write failures start, and fail2ban cannot append to its log — bans silently stop firing.
+
 - [ ] **Audit running containers regularly.**
 
   ```bash
   docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
-  docker inspect CONTAINER_NAME | grep -E "Privileged|SecurityOpt"
+  docker inspect CONTAINER_NAME | grep -E "Privileged|SecurityOpt|ReadonlyRootfs"
   ```
 
 ---
@@ -725,11 +773,17 @@
 
   # Initialize a local encrypted repository
   restic init --repo /opt/backups/encrypted-repo
-  # Enter a strong passphrase — store it in a password manager, not on the server
+  # Enter a strong passphrase — store it in a password manager, NOT on the server
 
-  # Back up database dump + uploads
+  # Back up database: pipe directly into restic (no plaintext dump on disk)
+  docker exec MARIADB_CONTAINER mysqldump -u root -p"$DB_ROOT_PASS" \
+    --single-transaction --all-databases \
+    | gzip \
+    | restic backup --repo /opt/backups/encrypted-repo \
+        --stdin --stdin-filename db-$(date +%Y%m%d).sql.gz
+
+  # Back up uploads
   restic backup --repo /opt/backups/encrypted-repo \
-    /tmp/db-dump.sql.gz \
     /var/www/html/wp-content/uploads
 
   # List snapshots
@@ -739,7 +793,32 @@
   restic restore latest --repo /opt/backups/encrypted-repo --target /tmp/restore/
   ```
 
-  > **Store the passphrase off-server.** A backup you can't decrypt is useless. The passphrase should be in your password manager and tested during quarterly restore drills.
+  > **Do not write the database dump to `/tmp` before restic.** A dump sitting in `/tmp/db-dump.sql.gz` between the mysqldump step and the restic step exposes plaintext credentials to any process that runs during that window. Pipe directly into restic `--stdin`.
+
+  > **Store the passphrase off-server.** A backup you can't decrypt is useless. The passphrase should be in your password manager and tested during quarterly restore drills. If the passphrase is in a `.env` file or systemd unit on the server, an attacker with root access reads it, then runs `restic forget --keep-last 0 --prune` to delete every snapshot before encrypting your data — making recovery impossible.
+
+- [ ] **Use an append-only or object-locked backup destination for ransomware survivability.**
+
+  A local restic repository (`/opt/backups/encrypted-repo`) can be destroyed by an attacker with root: `restic forget --prune --keep-last 0` runs in seconds and leaves nothing. The pull-not-push design protects against the attacker poisoning the backup machine, but does not protect against the attacker deleting the source repository before the next pull.
+
+  **Option A — Restic REST server in append-only mode** (self-hosted, strong protection):
+  ```bash
+  # On a second server (your backup machine):
+  # Install rest-server and run with --append-only
+  # The production host can write new snapshots but cannot delete or prune existing ones
+  restic -r rest:http://backup-server:8000/repo backup ...
+  ```
+
+  **Option B — Object storage with object lock** (recommended for simplicity):
+  Use Backblaze B2, Cloudflare R2, or AWS S3 with object lock (WORM) enabled. Create a **write-only** access key for the production server (can upload, cannot delete). Snapshots are then immutable even if the production host is fully compromised.
+
+  ```bash
+  # Example: restic with Backblaze B2
+  restic init --repo b2:BUCKET_NAME:/path/to/repo
+  # Use a key that has only write permissions — cannot list or delete snapshots
+  ```
+
+  > For most solo developers, B2 with object lock and a write-only key is the simplest production-ready setup. Backblaze B2 free tier covers several GB; pricing is $0.006/GB/month above that.
 
 - [ ] **Follow the 3-2-1 rule:** 3 copies, 2 different media/locations, 1 offsite.
 

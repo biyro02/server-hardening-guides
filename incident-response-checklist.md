@@ -236,6 +236,21 @@ docker exec DB_CONTAINER mysql -u root -p"$MYSQL_ROOT_PASSWORD" \
 docker exec DB_CONTAINER mysql -u root -p"$MYSQL_ROOT_PASSWORD" wordpress \
   -e "SELECT user_login, user_email, user_registered FROM wp_users;"
 
+# Database persistence: check wp_options for injected code (malicious shortcodes,
+# autoloaded PHP, eval-based backdoors that survive file-system cleanup)
+docker exec DB_CONTAINER mysql -u root -p"$MYSQL_ROOT_PASSWORD" wordpress \
+  -e "SELECT option_name, LEFT(option_value, 300) FROM wp_options
+      WHERE autoload = 'yes'
+        AND (option_value LIKE '%base64_decode%'
+          OR option_value LIKE '%eval(%'
+          OR option_value LIKE '%<?php%'
+          OR option_value LIKE '%gzinflate%')
+      ORDER BY option_id DESC LIMIT 20;"
+
+# Database persistence: check for unexpected scheduled WP-Cron events
+# Attackers can register cron events that re-install backdoors after cleanup
+docker exec --user www-data WP_CONTAINER wp cron event list
+
 # Check for PHP eval/base64_decode in uploaded files (obfuscated webshell)
 grep -rE "(eval\s*\(|base64_decode\s*\(|gzinflate|str_rot13|assert\s*\()" \
   /var/www/html/wp-content/uploads/ 2>/dev/null
@@ -264,12 +279,20 @@ Before beginning recovery, answer these questions:
 
 > Do not try to clean a compromised system. Cleaning is error-prone — a missed backdoor means you go through this entire process again. Rebuild from a clean image and restore data from a known-good backup.
 
-- [ ] **Identify the last known-good backup** — before the estimated compromise date.
+- [ ] **Identify the last known-good backup** — find the breach timestamp first, then choose a snapshot that predates it.
 
   ```bash
-  ls -lt /opt/myapp/backups/daily/
-  # Find a backup that predates the first malicious log entry
+  # Step 1: Find the earliest malicious log entry to establish the breach timestamp
+  grep -E "POST /wp-login.php|/wp-content/uploads/.*\.php|eval\(" \
+    /var/log/nginx/access.log | sort | head -5
+
+  # Step 2: List restic snapshots — choose one that predates the breach date
+  restic snapshots --repo /opt/myapp/backups/encrypted-repo
+  # The snapshot date = when the backup ran, NOT when the data was clean.
+  # If the breach was 5 days ago and daily backups ran, the last 5 snapshots may be contaminated.
   ```
+
+  > **If the attacker deleted your restic snapshots** (via `restic forget --prune`): check your backup machine or object storage first. If you used append-only mode or B2/S3 object lock, snapshots are intact regardless. If the local repository is empty and no offsite copy exists, recovery from backup is not possible — you are rebuilding from scratch with data loss.
 
 - [ ] **Test the restore on a non-production system** before wiping production.
 
