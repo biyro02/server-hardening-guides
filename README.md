@@ -212,4 +212,4 @@ Issues and pull requests welcome. If you find something wrong, outdated, or miss
 
 ## License
 
-MIT
+[GNU General Public License v3.0](LICENSE) — derivative works must remain open source under the same terms.
