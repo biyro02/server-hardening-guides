@@ -44,6 +44,7 @@ These were found by running Nikto, WPScan, nmap, and custom scripts against a li
 | [local-to-production-checklist.md](local-to-production-checklist.md) | Full deployment lifecycle: env separation, secrets audit, Docker safety, post-deploy verification, rollback procedure, CI/CD security (branch protection, Dependabot, pinned Actions), DNS security (CAA records, registrar lock) |
 | [cloudflare-hardening.md](cloudflare-hardening.md) | Cloudflare setup: origin IP cloaking, Cloudflare-only UFW lockdown, SSL Full Strict, WAF rules, rate limiting, bot fight mode, DNSSEC, authenticated origin pulls, API token restriction |
 | [incident-response-checklist.md](incident-response-checklist.md) | What to do when compromised: evidence collection, isolation, investigation playbook, recovery, credential rotation, IOC reference |
+| [disaster-recovery.md](disaster-recovery.md) | Recovery playbooks for 8 scenarios: accidental deletion, DB corruption, failed deployment, full server rebuild, ransomware, domain hijacking, Cloudflare account compromise, lost DB password. Includes monthly backup drill script and RTO estimates. |
 | [security-audit-automation.md](security-audit-automation.md) | Recurring audit tools: Lynis, rkhunter, AIDE (file integrity), auditd, CrowdSec, scheduled WPScan, automated weekly security digest |
 
 ## How to Use
@@ -61,6 +62,7 @@ These are checklists, not scripts. Work through each item and understand *why* b
 
 5. `security-audit-automation.md` — set up recurring scans on day 1
 6. `incident-response-checklist.md` — read it *before* you need it
+7. `disaster-recovery.md` — read it *before* you need it; run the backup drill monthly
 
 ## What This Is Based On
 
