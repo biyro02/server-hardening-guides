@@ -1,6 +1,39 @@
 # Server Hardening Guides
 
-Production security checklists for self-hosted web applications — based on real-world hardening of a WordPress/Docker stack on a Hetzner VPS, including penetration testing, red-team scenario validation across 16 attack vectors, and multi-model adversarial review.
+Production security checklists for self-hosted web applications — based on real-world hardening of a WordPress / Docker / Nginx stack on a VPS, validated through penetration testing, 16-vector red-team scenarios, and multi-model adversarial review.
+
+## Who Is This For
+
+**This is for you if:**
+- You self-host a web application on a VPS (DigitalOcean, Vultr, OVH, Linode, or similar)
+- You run Docker Compose workloads with Nginx as a reverse proxy
+- You use WordPress, or a PHP-based application behind Nginx
+- You have no dedicated security engineer — you are the security engineer
+- You want to understand *why* each control exists, not just copy-paste commands
+
+**This is not for you if:**
+- You deploy to managed platforms (Heroku, Render, Fly.io, AWS ECS)
+- You run Kubernetes
+- You work in a regulated industry with compliance requirements (CIS benchmarks, SOC 2, PCI-DSS) — treat these as a floor, not a ceiling
+
+**You will get the most out of this if:**
+- You are comfortable with SSH, Docker, and basic Linux administration
+- You are deploying your first production server and want to do it right
+- You have an existing server and are asking "what have I missed?"
+
+## What Is Notable About This
+
+Most hardening guides list controls. These guides document the *mistakes found in the controls themselves*:
+
+- **Chankro `disable_functions` bypass** — blocking `exec`, `system`, `shell_exec` is not enough. `putenv('LD_PRELOAD=/tmp/evil.so') + mail()` forks a sendmail subprocess that loads the shared object entirely outside PHP's `disable_functions` checks. `mail`, `putenv`, and `dl` must also be blocked.
+- **nginx `add_header` inheritance** — any `location` block with its own `add_header` directive silently drops *all* `add_header` directives from the parent `server` block. Security headers set globally disappear for login pages, admin pages, and PHP endpoints — the highest-risk locations.
+- **`opcache.restrict_api = ""`** — PHP documentation: "If non-empty, checks that the current working directory is within the specified path." An empty string means *no restriction at all*. Commenting "prevents scripts from modifying the opcode cache" while using `""` is the opposite of the stated intent.
+- **fail2ban sshd backend on Ubuntu 22/24** — sshd logs exclusively to journald, not `/var/log/auth.log`. Using `backend = auto` with `logpath = /var/log/auth.log` silently bans nothing. The wrong backend produces zero errors and zero bans.
+- **fail2ban wp-login regex matching successful logins** — `^<HOST> .* "POST /wp-login.php` matches every POST including your own successful logins. The filter must gate on response codes (401/403/429) or it bans the admin.
+- **Cloudflare-bypass-via-Cloudflare** — an attacker who discovers the origin IP can route requests through their own Cloudflare account. Origin UFW rules allow all Cloudflare IP ranges, so the requests pass the firewall. The victim's WAF rules and rate limits do not apply. Authenticated Origin Pulls does not close this gap — the client certificate is issued by Cloudflare's CA and is the same for all accounts.
+- **auditd and AIDE monitoring wrong paths** — both tools watch host filesystem paths. When WordPress runs in a Docker named volume, `/var/www/html` does not exist on the host. Rules targeting it are silently ignored.
+
+These were found by running Nikto, WPScan, nmap, and custom scripts against a live setup; testing 16 attack vectors; and submitting each guide to ChatGPT, Claude Opus 4.7, and DeepSeek with adversarial review instructions.
 
 ## Contents
 
@@ -143,7 +176,7 @@ Not every claim from adversarial review is valid. These were checked and rejecte
 - **nginx empty-key rate limit "tüm request'leri aynı bucket'a koyar"** (DeepSeek): False. From nginx documentation: "If the key value is an empty string, the request will not be limited." Empty key zones are ignored per-request, not shared. This is intentional nginx behavior and is how `map`-based selective rate limiting works. Verified against nginx source and documentation.
 - **xmlrpc.php 404 returns PHP REQUEST_URI** (DeepSeek): Not applicable. The nginx config uses `location = /xmlrpc.php { deny all; return 404; }` — an nginx-level `return` directive. The request never reaches PHP-FPM. There is no PHP error page and no REQUEST_URI leakage.
 - **Cloudflare WAF `ip.src in {IP/32}` is invalid syntax** (DeepSeek): False. Cloudflare's WAF expression language supports CIDR notation in the `in` operator. `ip.src in {1.2.3.4/32}` is valid. A `/32` is simply a single host — the syntax is verbose but correct.
-- **Guide removes postfix, breaking Hetzner abuse notifications** (DeepSeek): The guide removes `cups`, `avahi`, `bluetooth`, and `ModemManager`. It does not remove postfix or any MTA. This finding attacked a recommendation that does not exist in the guide.
+- **Guide removes postfix, breaking abuse notification emails** (DeepSeek): The guide removes `cups`, `avahi`, `bluetooth`, and `ModemManager`. It does not remove postfix or any MTA. This finding attacked a recommendation that does not exist in the guide.
 - **Supply chain: require signed commits and image digest pinning** (ChatGPT): For a 1-5 person team on a VPS, protected branches + PR reviews + Dependabot is the appropriate threat model. Signed commits and image digests add significant operational overhead with marginal benefit when the team controls the repository and the deploy key. Noted as a "raise the bar" option for higher threat models, not added as a default requirement.
 
 **Round 3 rejections (Claude Opus 4.7):**
@@ -161,7 +194,7 @@ These guides assume:
 - A single-tenant VPS running Docker Compose workloads
 - WordPress as the web application
 - Nginx as the reverse proxy
-- Hetzner/DigitalOcean/Vultr class VPS (no managed Kubernetes, no WAF appliance)
+- A VPS from any standard provider (no managed Kubernetes, no WAF appliance)
 - A small team (1-5 people) without a dedicated security engineer
 
 If your threat model is significantly higher (financial services, healthcare, government), treat these guides as a floor, not a ceiling.

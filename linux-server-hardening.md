@@ -2,7 +2,7 @@
 
 **Production-ready security baseline for Ubuntu/Debian VPS**
 
-> This checklist is based on real-world experience hardening production servers running Docker workloads on Ubuntu 24.04 LTS. It assumes a fresh VPS from a provider like Hetzner, DigitalOcean, or Vultr. Work through it top-to-bottom on first setup, then revisit periodically.
+> This checklist is based on real-world experience hardening production servers running Docker workloads on Ubuntu 24.04 LTS. It assumes a fresh VPS from any standard provider. Work through it top-to-bottom on first setup, then revisit periodically.
 
 ---
 
