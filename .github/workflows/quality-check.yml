@@ -1,0 +1,20 @@
+name: Security & Quality Scan  # Robotumuzun adı
+
+on: [push, pull_request]      # Ne zaman çalışsın? (Kod gönderildiğinde veya PR açıldığında)
+
+jobs:
+  markdown-link-check:        # İlk görevimiz: Bozuk link kontrolü
+    runs-on: ubuntu-latest    # Bu iş için GitHub'dan bir sanal bilgisayar istiyoruz
+    steps:
+    - uses: actions/checkout@v4 # Önce senin kodlarını o sanal bilgisayara indiriyoruz
+    - name: Link Checker      # Robotun bu adımına bir isim verdik
+      uses: gaurav-nelson/github-action-markdown-link-check@v1 # Hazır bir link kontrol aracı kullanıyoruz
+
+  markdown-lint:              # İkinci görevimiz: Yazım ve format kontrolü
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Markdown Lint     # Rehberlerin formatı bozuk mu diye bakacak
+      uses: DavidAnson/markdownlint-cli2-action@v16
+      with:
+        globs: "**/*.md"      # Tüm .md dosyalarına bak
