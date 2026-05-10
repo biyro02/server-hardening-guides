@@ -1,0 +1,7 @@
+---
+- name: Sunucu Zırhlama Operasyonu
+  hosts: all              # Bu senaryo tüm tanımlı sunucularda çalışsın
+  become: true            # Komutları 'root' yetkisiyle (sudo) çalıştır
+  
+  roles:
+    - server_hardening    # Az önce yazdığımız rolü kullan

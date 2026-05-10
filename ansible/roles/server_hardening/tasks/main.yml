@@ -1,0 +1,126 @@
+---
+# SSH Hardening - linux-server-hardening.md rehberindeki 1. madde
+- name: SSH | Şifre ile girişi yasakla
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PasswordAuthentication'
+    line: 'PasswordAuthentication no'
+  notify: restart ssh
+
+- name: SSH | Root girişini yasakla
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitRootLogin'
+    line: 'PermitRootLogin no'
+  notify: restart ssh
+
+- name: SSH | Boş şifreleri yasakla
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitEmptyPasswords'
+    line: 'PermitEmptyPasswords no'
+  notify: restart ssh
+
+  # UFW (Firewall) Hardening - linux-server-hardening.md rehberindeki 2. madde
+- name: Firewall | UFW paketini kur
+  apt:
+    name: ufw
+    state: present
+    update_cache: yes
+
+- name: Firewall | Varsayılan politikayı belirle (Gelenleri engelle)
+  ufw:
+    direction: incoming
+    policy: deny
+
+- name: Firewall | Varsayılan politikayı belirle (Gidenlere izin ver)
+  ufw:
+    direction: outgoing
+    policy: allow
+
+- name: Firewall | SSH portuna izin ver (Dikkat: Bunu yapmazsak dışarıda kalırız!)
+  ufw:
+    rule: allow
+    port: '22'
+    proto: tcp
+
+- name: Firewall | Web portlarına izin ver (80 & 443)
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - '80'
+    - '443'
+
+- name: Firewall | UFW'yi aktif et
+  ufw:
+    state: enabled
+
+# Fail2Ban Hardening - Otomatik Engelleyici
+- name: Fail2Ban | Paketi kur
+  apt:
+    name: fail2ban
+    state: present
+
+- name: Fail2Ban | Servisin çalıştığından ve açılışta başladığından emin ol
+  service:
+    name: fail2ban
+    state: started
+    enabled: yes
+
+- name: Fail2Ban | SSH için temel korumayı aktif et (jail.local)
+  copy:
+    dest: /etc/fail2ban/jail.local
+    content: |
+      [sshd]
+      enabled = true
+      port    = ssh
+      logpath = %(sshd_log)s
+      backend = %(sshd_backend)s
+      maxretry = 5
+      bantime  = 1h
+  notify: restart fail2ban
+
+# Kernel Hardening (sysctl) - linux-server-hardening.md rehberindeki 3. madde
+- name: Kernel | IP Spoofing korumasını aktif et (Reverse Path Filtering)
+  sysctl:
+    name: "{{ item }}"
+    value: '1'
+    state: present
+    reload: yes
+  loop:
+    - net.ipv4.conf.all.rp_filter
+    - net.ipv4.conf.default.rp_filter
+
+- name: Kernel | SYN Flood saldırılarına karşı korumayı aç
+  sysctl:
+    name: net.ipv4.tcp_syncookies
+    value: '1'
+    state: present
+    reload: yes
+
+- name: Kernel | ICMP Redirect (Trafik yönlendirme) saldırılarını engelle
+  sysctl:
+    name: "{{ item }}"
+    value: '0'
+    state: present
+    reload: yes
+  loop:
+    - net.ipv4.conf.all.accept_redirects
+    - net.ipv4.conf.default.accept_redirects
+    - net.ipv6.conf.all.accept_redirects
+    - net.ipv6.conf.default.accept_redirects
+
+# Otomatik Güncellemeler - Güvenliği güncel tutma
+- name: Güncelleme | unattended-upgrades paketini kur
+  apt:
+    name: unattended-upgrades
+    state: present
+
+- name: Güncelleme | Otomatik güvenlik güncellemelerini aktif et
+  copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
