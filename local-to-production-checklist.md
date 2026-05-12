@@ -178,6 +178,51 @@
 
 - [ ] **Check that your CI/CD environment variables are not echoed in build logs.**
 
+- [ ] **Audit credentials injected into the frontend by your backend.** Any server-side code that renders a JS global or JSON config block for client consumption must be audited line by line. A common pattern seen in real production applications:
+
+  ```php
+  // DANGEROUS — masterKey bypasses all ACLs on Parse Server
+  echo "var API_CONFIG = " . json_encode([
+      "parseServerConfig" => [
+          "appId"     => $config["appId"],
+          "masterKey" => $config["masterKey"],   // ← must never reach the client
+          "parseUrl"  => $config["parseUrl"],
+      ]
+  ]);
+  ```
+
+  The masterKey (Parse Server), service role key (Supabase), admin SDK credential (Firebase), or any equivalent **server-only secret** must not appear in the rendered HTML or any API response that is sent to unauthenticated or low-privilege users. A single leaked masterKey gives full read/write/delete access to every object in the database, bypassing all per-object ACLs and Class-Level Permissions.
+
+  What to check:
+
+  - [ ] No `masterKey` / `serviceRoleKey` / admin SDK credential in any `<script>` tag or JSON config endpoint
+  - [ ] Client-side SDKs receive only the **client key** or **anonymous key** — keys scoped to public read-only operations
+  - [ ] BaaS Class-Level Permissions (CLP) are set so that a valid client key alone cannot enumerate or export sensitive classes (`_User`, `_Session`, patient records, etc.)
+  - [ ] If your app currently exposes a masterKey to the client, treat it as fully compromised: rotate the key, audit the `_Session` table for active tokens that were issued while the key was exposed, and bulk-invalidate them
+
+  ```bash
+  # Quick check — does your rendered HTML contain the word "masterKey"?
+  curl -s https://your-app.example.com/ | grep -i "masterKey\|serviceRoleKey\|adminKey"
+
+  # Check all API config endpoints without authentication
+  curl -s https://your-app.example.com/api/config | python3 -m json.tool | grep -i "key\|secret\|token"
+  ```
+
+- [ ] **Verify BaaS / backend-as-a-service access controls before go-live.** If your application uses Parse Server, Firebase, Supabase, Back4App, or a similar platform:
+
+  - [ ] Class-Level Permissions (CLP) on sensitive classes are set to deny public `find` and `get` — verify via the dashboard or the schema API
+  - [ ] Object-level ACLs are set on every record that should not be world-readable
+  - [ ] The Parse `masterKey`, Supabase `service_role` key, or Firebase admin credential is stored only in server-side environment variables — never in client bundles, `localStorage`, or HTML
+
+  ```bash
+  # Parse Server: check CLP on the _User class (requires masterKey — run server-side only)
+  curl -s -X GET "https://parse.example.com/parse/schemas/_User" \
+    -H "X-Parse-Application-Id: YOUR_APP_ID" \
+    -H "X-Parse-Master-Key: YOUR_MASTER_KEY" \
+    | python3 -m json.tool | grep -A 20 '"classLevelPermissions"'
+  # Expected: find/get/count should be false or restricted to authenticated users
+  ```
+
 ---
 
 ## 4. Infrastructure Checklist
