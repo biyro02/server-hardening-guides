@@ -1,6 +1,6 @@
-# PHP Application Security Hardening
+﻿# PHP Application Security Hardening
 
-**Non-obvious vulnerabilities in PHP applications — what looks correct but silently fails**
+**Non-obvious vulnerabilities in PHP applications ÔÇö what looks correct but silently fails**
 
 > This guide focuses on mistakes that are genuinely easy to make: patterns copy-pasted from StackOverflow, mitigations that appear to work but don't, and security controls that fail silently under specific conditions. Basic advice like "use prepared statements" is included only where the common implementation of that advice is itself wrong.
 
@@ -109,7 +109,7 @@ if ($hash == "0e462097431906509019562988736854") {
 
 **Why it fails:**
 
-PHP's `==` operator performs type juggling. When both sides of a comparison look like numbers, PHP converts them to numbers before comparing. Hashes that match the pattern `0e[0-9]+` are interpreted as scientific notation (0 × 10^n = 0). Two completely different values whose MD5 or SHA1 hashes both start with `0e` followed by digits will compare as equal with `==`.
+PHP's `==` operator performs type juggling. When both sides of a comparison look like numbers, PHP converts them to numbers before comparing. Hashes that match the pattern `0e[0-9]+` are interpreted as scientific notation (0 ├ù 10^n = 0). Two completely different values whose MD5 or SHA1 hashes both start with `0e` followed by digits will compare as equal with `==`.
 
 Known "magic" hash collisions include:
 
@@ -190,7 +190,7 @@ require($_GET['template']);
 
 **Why it fails:**
 
-`include` and `require` accept URLs if `allow_url_include` is enabled (it is Off by default since PHP 5.2, but may be On in legacy or misconfigured environments). Even with `allow_url_include = Off`, local file inclusion via `../` path traversal is possible, allowing an attacker to include any file readable by the PHP process — including `/etc/passwd`, log files containing injected PHP code, or uploaded files with a `.jpg` extension that contain PHP.
+`include` and `require` accept URLs if `allow_url_include` is enabled (it is Off by default since PHP 5.2, but may be On in legacy or misconfigured environments). Even with `allow_url_include = Off`, local file inclusion via `../` path traversal is possible, allowing an attacker to include any file readable by the PHP process ÔÇö including `/etc/passwd`, log files containing injected PHP code, or uploaded files with a `.jpg` extension that contain PHP.
 
 **Fixed pattern:**
 
@@ -207,7 +207,7 @@ include __DIR__ . '/pages/' . $page . '.php';
 ```
 
 ```ini
-; php.ini — ensure this is Off
+; php.ini ÔÇö ensure this is Off
 allow_url_include = Off
 allow_url_fopen = Off  ; also disables file_get_contents('http://...')
 ```
@@ -256,14 +256,14 @@ $resetLink = 'https://' . $host . '/reset?token=' . $token;
 header("Location: " . $_GET['next']);
 exit;
 
-// Injection via newline — injects arbitrary headers
+// Injection via newline ÔÇö injects arbitrary headers
 // ?next=%0d%0aSet-Cookie:+session=attacker_value
 header("Location: /dashboard\r\nSet-Cookie: session=hijacked");
 ```
 
 **Why it fails:**
 
-Without URL validation, an attacker can redirect users to any site (`?next=https://phishing.example.com`). Additionally, in PHP versions before 7.3, `header()` did not strip newline characters, enabling header injection — an attacker could inject `\r\n` to add arbitrary HTTP headers, including cookies or cache-control directives.
+Without URL validation, an attacker can redirect users to any site (`?next=https://phishing.example.com`). Additionally, in PHP versions before 7.3, `header()` did not strip newline characters, enabling header injection ÔÇö an attacker could inject `\r\n` to add arbitrary HTTP headers, including cookies or cache-control directives.
 
 **Fixed pattern:**
 
@@ -273,7 +273,7 @@ function safe_redirect(string $url, array $allowedHosts): void {
 
     // Relative paths only, OR validate host against allowlist
     if (!isset($parsed['host'])) {
-        // relative URL — safe, but normalize to prevent protocol-relative //attacker.com
+        // relative URL ÔÇö safe, but normalize to prevent protocol-relative //attacker.com
         if (strpos($url, '//') === 0) {
             $url = '/';
         }
@@ -310,7 +310,7 @@ if ($_FILES['upload']['type'] === 'image/jpeg') {
 
 **Why it fails:**
 
-File extensions are trivially forged. A file named `shell.php.jpg` may pass an extension check depending on how the check is implemented. The `$_FILES['type']` field is sent by the HTTP client and is not validated by PHP — an attacker can send any MIME type. A file with `.php` content and a `.jpg` extension will execute as PHP if the web server is configured to process `.php` files by extension match rather than by inspecting the file.
+File extensions are trivially forged. A file named `shell.php.jpg` may pass an extension check depending on how the check is implemented. The `$_FILES['type']` field is sent by the HTTP client and is not validated by PHP ÔÇö an attacker can send any MIME type. A file with `.php` content and a `.jpg` extension will execute as PHP if the web server is configured to process `.php` files by extension match rather than by inspecting the file.
 
 **Fixed pattern:**
 
@@ -324,7 +324,7 @@ if (!in_array($mimeType, $allowedMimeTypes, true)) {
     die('Invalid file type');
 }
 
-// Generate a random filename — never use the user-supplied name
+// Generate a random filename ÔÇö never use the user-supplied name
 $ext = match($mimeType) {
     'image/jpeg' => 'jpg',
     'image/png'  => 'png',
@@ -353,22 +353,22 @@ $data = unserialize($_POST['object_data']);
 
 **Why it fails:**
 
-PHP's `unserialize()` instantiates objects of any class that has been loaded, calling `__wakeup()` and `__destruct()` magic methods during the process. If the application (or any of its dependencies — including Symfony, Guzzle, Doctrine, monolog, etc.) contains a class with a `__destruct()` or `__wakeup()` method that does something dangerous (writes files, executes commands, makes HTTP requests), an attacker can craft a serialized payload that chains those methods to achieve remote code execution. This attack class is called "property-oriented programming" (POP) and documented gadget chains exist for every major PHP framework.
+PHP's `unserialize()` instantiates objects of any class that has been loaded, calling `__wakeup()` and `__destruct()` magic methods during the process. If the application (or any of its dependencies ÔÇö including Symfony, Guzzle, Doctrine, monolog, etc.) contains a class with a `__destruct()` or `__wakeup()` method that does something dangerous (writes files, executes commands, makes HTTP requests), an attacker can craft a serialized payload that chains those methods to achieve remote code execution. This attack class is called "property-oriented programming" (POP) and documented gadget chains exist for every major PHP framework.
 
 **Fixed pattern:**
 
 ```php
-// Use JSON for data transport — no object instantiation
+// Use JSON for data transport ÔÇö no object instantiation
 $prefs = json_decode(base64_decode($_COOKIE['preferences']), true);
 
 // If unserialize() is unavoidable (e.g., legacy code or PHP sessions),
 // use the allowed_classes option (PHP 7.0+) to restrict which classes
 // can be instantiated:
 $data = unserialize($input, ['allowed_classes' => false]);
-// allowed_classes: false means only scalars and arrays — no objects
+// allowed_classes: false means only scalars and arrays ÔÇö no objects
 ```
 
-> **Warning:** `allowed_classes: false` prevents object injection but also means you cannot restore custom objects. Any code path that feeds user-controlled data to `unserialize()` should be treated as a critical vulnerability until proven otherwise. Serialization gadget chains do not require the application's own code to be vulnerable — any dependency with a suitable magic method is sufficient.
+> **Warning:** `allowed_classes: false` prevents object injection but also means you cannot restore custom objects. Any code path that feeds user-controlled data to `unserialize()` should be treated as a critical vulnerability until proven otherwise. Serialization gadget chains do not require the application's own code to be vulnerable ÔÇö any dependency with a suitable magic method is sufficient.
 
 ---
 
@@ -390,7 +390,7 @@ PHP errors and stack traces expose: absolute file system paths, database server 
 **Fixed pattern:**
 
 ```ini
-; php.ini — production settings
+; php.ini ÔÇö production settings
 display_errors = Off
 display_startup_errors = Off
 log_errors = On
@@ -415,7 +415,7 @@ set_exception_handler(function (Throwable $e) {
 **Vulnerable pattern:**
 
 ```php
-// Old code — the /e modifier evaluates the replacement as PHP
+// Old code ÔÇö the /e modifier evaluates the replacement as PHP
 $output = preg_replace('/(.*)/e', strtoupper('\\1'), $input);
 
 // With user-controlled input in the replacement string:
@@ -429,7 +429,7 @@ The `/e` modifier in `preg_replace()` caused PHP to evaluate the replacement str
 **Fixed pattern:**
 
 ```php
-// Use preg_replace_callback() instead — no code evaluation
+// Use preg_replace_callback() instead ÔÇö no code evaluation
 $output = preg_replace_callback('/(.*)/', function ($matches) {
     return strtoupper($matches[1]);
 }, $input);
@@ -485,7 +485,7 @@ if (substr($filename, -4) === '.jpg') {
 }
 
 // Request: ?file=../etc/passwd%00.jpg
-// substr('../etc/passwd\0.jpg', -4) === '.jpg' → true
+// substr('../etc/passwd\0.jpg', -4) === '.jpg' ÔåÆ true
 // But is_file() and open() stop at the null byte
 // Result: /etc/passwd is read
 ```
@@ -528,7 +528,7 @@ session_start();
 
 **Why it fails:**
 
-If `session.use_only_cookies` is Off, PHP accepts session IDs from URL parameters (`?PHPSESSID=xxx`). An attacker who knows a session ID can send the victim a URL with that ID embedded. When the victim authenticates, the session — which the attacker already knows — becomes an authenticated session.
+If `session.use_only_cookies` is Off, PHP accepts session IDs from URL parameters (`?PHPSESSID=xxx`). An attacker who knows a session ID can send the victim a URL with that ID embedded. When the victim authenticates, the session ÔÇö which the attacker already knows ÔÇö becomes an authenticated session.
 
 **Fixed pattern:**
 
@@ -638,13 +638,13 @@ libxml_disable_entity_loader(true);  // deprecated in PHP 8.0, but works in 7.x
 $xml = simplexml_load_string($userXml);
 ```
 
-> **Note:** `LIBXML_NOENT` is one of the most confusingly named constants in PHP. Despite the name, setting it actually causes entities to be substituted (expanded), which is the *unsafe* behavior. Do NOT set `LIBXML_NOENT` — omit it or explicitly unset it. The safe flags are `LIBXML_NONET` (no network) and `libxml_set_external_entity_loader(null)` (no file or network external entities).
+> **Note:** `LIBXML_NOENT` is one of the most confusingly named constants in PHP. Despite the name, setting it actually causes entities to be substituted (expanded), which is the *unsafe* behavior. Do NOT set `LIBXML_NOENT` ÔÇö omit it or explicitly unset it. The safe flags are `LIBXML_NONET` (no network) and `libxml_set_external_entity_loader(null)` (no file or network external entities).
 
 ---
 
 ## 2. Legacy PHP (5.x and Early 7.x)
 
-> **Applies to:** Applications running PHP 5.x or PHP 7.0–7.2.
+> **Applies to:** Applications running PHP 5.x or PHP 7.0ÔÇô7.2.
 > **Quick detect:**
 > ```bash
 > php -v
@@ -667,9 +667,9 @@ $result = mysql_query("SELECT * FROM users WHERE name = '" . $_POST['name'] . "'
 
 **Why it fails:**
 
-The `mysql_*` extension (deprecated in PHP 5.5, removed in PHP 7.0) has no prepared statement support. Every query must be constructed by string concatenation, and the only escaping function — `mysql_real_escape_string()` — is easily bypassed with multi-byte character set attacks (specifically, with GBK or similar encodings where the escaping backslash can be consumed as part of a multi-byte character).
+The `mysql_*` extension (deprecated in PHP 5.5, removed in PHP 7.0) has no prepared statement support. Every query must be constructed by string concatenation, and the only escaping function ÔÇö `mysql_real_escape_string()` ÔÇö is easily bypassed with multi-byte character set attacks (specifically, with GBK or similar encodings where the escaping backslash can be consumed as part of a multi-byte character).
 
-**Fixed pattern — if you can migrate:**
+**Fixed pattern ÔÇö if you can migrate:**
 
 ```php
 // PDO with prepared statements
@@ -684,10 +684,10 @@ $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 **If you cannot upgrade (PHP 5.x with mysql_* still in use):**
 
 ```php
-// Set charset explicitly before any queries — reduces multi-byte escape bypass risk
+// Set charset explicitly before any queries ÔÇö reduces multi-byte escape bypass risk
 mysql_set_charset('utf8', $conn);
 
-// Use mysql_real_escape_string() — not perfect but better than nothing
+// Use mysql_real_escape_string() ÔÇö not perfect but better than nothing
 $name = mysql_real_escape_string($_POST['name'], $conn);
 $result = mysql_query("SELECT * FROM users WHERE name = '" . $name . "'");
 
@@ -710,7 +710,7 @@ register_globals = On
 ```php
 // With register_globals On, all GET/POST/COOKIE/SERVER values
 // become global PHP variables automatically
-// ?admin=1 → $admin = '1'
+// ?admin=1 ÔåÆ $admin = '1'
 if ($admin) {
     show_admin_panel();
 }
@@ -754,12 +754,12 @@ magic_quotes_gpc = On
 // call mysql_real_escape_string(), resulting in double-escaped data.
 // Stored in DB: O\'Brien (with visible backslash-apostrophe)
 // OR: developers disable their own escaping, relying on magic_quotes
-// which uses addslashes() — not the charset-aware escaping of mysql_real_escape_string()
+// which uses addslashes() ÔÇö not the charset-aware escaping of mysql_real_escape_string()
 ```
 
 **Why it fails:**
 
-`magic_quotes_gpc` was removed in PHP 5.4. It created two categories of broken code: code that double-escaped input (storing `O\'Brien` in the database), and code that disabled explicit escaping and relied solely on magic quotes — which was always less safe than `mysql_real_escape_string()`. Neither pattern is correct.
+`magic_quotes_gpc` was removed in PHP 5.4. It created two categories of broken code: code that double-escaped input (storing `O\'Brien` in the database), and code that disabled explicit escaping and relied solely on magic quotes ÔÇö which was always less safe than `mysql_real_escape_string()`. Neither pattern is correct.
 
 **Mitigation if stuck on PHP 5.3 or earlier:**
 
@@ -786,7 +786,7 @@ $_COOKIE = strip_magic_quotes($_COOKIE);
 
 **Why it fails:**
 
-`safe_mode` was never a real security boundary. It restricted only some file operations based on owner UID matching — it did not prevent SQL injection, XSS, object injection, or any of the application-layer vulnerabilities that actually get sites compromised. The PHP developers acknowledged this and removed it. Any security posture that lists `safe_mode = On` as a control should be treated as having no meaningful application-layer security.
+`safe_mode` was never a real security boundary. It restricted only some file operations based on owner UID matching ÔÇö it did not prevent SQL injection, XSS, object injection, or any of the application-layer vulnerabilities that actually get sites compromised. The PHP developers acknowledged this and removed it. Any security posture that lists `safe_mode = On` as a control should be treated as having no meaningful application-layer security.
 
 **Mitigation:** Upgrade PHP. There is no safe mode equivalent that provides real security. Use OS-level file permissions, separate user accounts per application, and application-level input validation.
 
@@ -805,12 +805,12 @@ if (ereg('\.jpg$', $_GET['filename'])) {
 
 **Why it fails:**
 
-The POSIX `ereg()` function family (deprecated in PHP 5.3, removed in PHP 7.0) stopped processing at null bytes, just like C string functions. A filename like `shell.php\0.jpg` would pass the `\.jpg$` check because `ereg()` sees only `shell.php` before the null byte, which does not match, but wait — the termination means `ereg()` never sees `.jpg` either. The behavior was implementation-specific and inconsistent, making it unreliable as a security control.
+The POSIX `ereg()` function family (deprecated in PHP 5.3, removed in PHP 7.0) stopped processing at null bytes, just like C string functions. A filename like `shell.php\0.jpg` would pass the `\.jpg$` check because `ereg()` sees only `shell.php` before the null byte, which does not match, but wait ÔÇö the termination means `ereg()` never sees `.jpg` either. The behavior was implementation-specific and inconsistent, making it unreliable as a security control.
 
 **Fixed pattern:**
 
 ```php
-// Use preg_match() — PCRE handles null bytes predictably
+// Use preg_match() ÔÇö PCRE handles null bytes predictably
 if (preg_match('/^[a-zA-Z0-9_\-]+\.jpg$/D', $_GET['filename'])) {
     // The /D modifier prevents $ from matching before \n
     // which is another ereg bypass variant
@@ -854,7 +854,7 @@ if (password_needs_rehash($hash, PASSWORD_BCRYPT, ['cost' => 12])) {
 }
 ```
 
-**If stuck on PHP 5.3–5.4:**
+**If stuck on PHP 5.3ÔÇô5.4:**
 
 ```php
 // Use the password_compat library (https://github.com/ircmaxell/password_compat)
@@ -870,19 +870,19 @@ $hash = password_hash($password, PASSWORD_BCRYPT);
 **Vulnerable pattern:**
 
 ```php
-// Code that used mcrypt — deprecated PHP 7.1, removed PHP 7.2
+// Code that used mcrypt ÔÇö deprecated PHP 7.1, removed PHP 7.2
 $encrypted = mcrypt_encrypt(MCRYPT_RIJNDAEL_256, $key, $data, MCRYPT_MODE_CBC, $iv);
 $decrypted = mcrypt_decrypt(MCRYPT_RIJNDAEL_256, $key, $encrypted, MCRYPT_MODE_CBC, $iv);
 ```
 
 **Why it fails two ways:**
 
-First, mcrypt was removed in PHP 7.2, so this code silently stops working — no error in some configurations, fatal error in others depending on extension loading. Second, the mcrypt implementation of Rijndael-256 is not the same as AES-256. AES uses a 128-bit block size; `MCRYPT_RIJNDAEL_256` uses a 256-bit block size. Code "upgraded" to use OpenSSL by replacing `MCRYPT_RIJNDAEL_256` with `aes-256-cbc` will silently produce different ciphertext and fail to decrypt data encrypted with the old code.
+First, mcrypt was removed in PHP 7.2, so this code silently stops working ÔÇö no error in some configurations, fatal error in others depending on extension loading. Second, the mcrypt implementation of Rijndael-256 is not the same as AES-256. AES uses a 128-bit block size; `MCRYPT_RIJNDAEL_256` uses a 256-bit block size. Code "upgraded" to use OpenSSL by replacing `MCRYPT_RIJNDAEL_256` with `aes-256-cbc` will silently produce different ciphertext and fail to decrypt data encrypted with the old code.
 
 **Fixed pattern:**
 
 ```php
-// Use OpenSSL — available in all modern PHP versions
+// Use OpenSSL ÔÇö available in all modern PHP versions
 function encrypt(string $plaintext, string $key): string {
     $iv = random_bytes(openssl_cipher_iv_length('aes-256-cbc'));
     $ciphertext = openssl_encrypt($plaintext, 'aes-256-cbc', $key, OPENSSL_RAW_DATA, $iv);
@@ -922,7 +922,7 @@ When `assert()` receives a string in PHP 5.x and 7.x, it evaluates the string as
 **Fixed pattern:**
 
 ```php
-// Pass a boolean expression directly — never a string
+// Pass a boolean expression directly ÔÇö never a string
 assert(is_numeric($value));
 
 // Or use explicit validation
@@ -932,7 +932,7 @@ if (!is_numeric($value)) {
 ```
 
 ```ini
-; php.ini — disable string assert evaluation (PHP 7.x)
+; php.ini ÔÇö disable string assert evaluation (PHP 7.x)
 assert.active = 0
 ; Or: zend.assertions = -1  (disables assert() entirely in production)
 ```
@@ -956,7 +956,7 @@ $context = stream_context_create(['http' => ['method' => 'GET']]);
 
 **Why it fails:**
 
-PHP 5.6 introduced peer verification by default. Before that, `file_get_contents('https://...')` and cURL with default settings did not verify the server's SSL certificate, making all HTTPS requests vulnerable to man-in-the-middle attacks. Code with explicit `CURLOPT_SSL_VERIFYPEER => false` — often added to "fix" certificate errors in development — disables this protection entirely even on PHP 5.6+.
+PHP 5.6 introduced peer verification by default. Before that, `file_get_contents('https://...')` and cURL with default settings did not verify the server's SSL certificate, making all HTTPS requests vulnerable to man-in-the-middle attacks. Code with explicit `CURLOPT_SSL_VERIFYPEER => false` ÔÇö often added to "fix" certificate errors in development ÔÇö disables this protection entirely even on PHP 5.6+.
 
 **Fixed pattern:**
 
@@ -996,7 +996,7 @@ $obj = unserialize($row['serialized_data']);
 
 **Why it fails beyond the general case:**
 
-Documented gadget chains exist for Symfony 2.x/3.x, Zend Framework 1.x/2.x, Yii 1.x, CakePHP 2.x, and many ORMs. An application that runs any of these as dependencies — even if the application's own code never creates exploitable gadgets — can be exploited if it unserializes user data anywhere. The PHP Generic Gadget Chains (PHPGGC) tool maintains a current list.
+Documented gadget chains exist for Symfony 2.x/3.x, Zend Framework 1.x/2.x, Yii 1.x, CakePHP 2.x, and many ORMs. An application that runs any of these as dependencies ÔÇö even if the application's own code never creates exploitable gadgets ÔÇö can be exploited if it unserializes user data anywhere. The PHP Generic Gadget Chains (PHPGGC) tool maintains a current list.
 
 **If you cannot upgrade and cannot remove unserialize():**
 
@@ -1014,7 +1014,7 @@ function unserialize_signed(string $input, string $key): mixed {
     $serialized = base64_decode($encoded);
     $expected = hash_hmac('sha256', $serialized, $key);
     if (!hash_equals($expected, $hmac)) {
-        throw new RuntimeException('Invalid signature — possible tampering');
+        throw new RuntimeException('Invalid signature ÔÇö possible tampering');
     }
     return unserialize($serialized);
 }
@@ -1042,7 +1042,7 @@ function unserialize_signed(string $input, string $key): mixed {
 **Vulnerable pattern:**
 
 ```php
-// Controller — fills model with all request input
+// Controller ÔÇö fills model with all request input
 User::create(request()->all());
 $user->fill(request()->all());
 $user->update(request()->all());
@@ -1053,7 +1053,7 @@ $user->update(request()->all());
 
 **Why it fails:**
 
-Laravel's mass assignment protection requires either a `$fillable` array (allowlist) or `$guarded` array (denylist) on each model. A model with neither — or with `$guarded = []` — accepts all fields. The common "fix" of adding `$guarded = ['id']` only protects the primary key, leaving `role`, `is_admin`, `email_verified_at`, and any other sensitive fields unprotected.
+Laravel's mass assignment protection requires either a `$fillable` array (allowlist) or `$guarded` array (denylist) on each model. A model with neither ÔÇö or with `$guarded = []` ÔÇö accepts all fields. The common "fix" of adding `$guarded = ['id']` only protects the primary key, leaving `role`, `is_admin`, `email_verified_at`, and any other sensitive fields unprotected.
 
 **Fixed pattern:**
 
@@ -1061,7 +1061,7 @@ Laravel's mass assignment protection requires either a `$fillable` array (allowl
 // In the model: use $fillable, not $guarded, for user-facing models
 class User extends Model {
     protected $fillable = ['name', 'email', 'password'];
-    // 'role', 'is_admin', 'email_verified_at' are not listed — cannot be mass assigned
+    // 'role', 'is_admin', 'email_verified_at' are not listed ÔÇö cannot be mass assigned
 }
 
 // In the controller: use only() to explicitly select allowed fields
@@ -1123,7 +1123,7 @@ $users = User::orderBy(request('sort'), request('direction'))->get();
 
 // Generates: ORDER BY `injected_column` ASC
 // SQL: ORDER BY (SELECT password FROM users WHERE id=1) ASC
-// — this is blind SQL injection via column expression
+// ÔÇö this is blind SQL injection via column expression
 ```
 
 **Why it fails:**
@@ -1146,7 +1146,7 @@ $users = User::orderBy($sort, $direction)->get();
 **Vulnerable pattern:**
 
 ```blade
-{{-- Unescaped output — XSS if $comment contains <script> --}}
+{{-- Unescaped output ÔÇö XSS if $comment contains <script> --}}
 {!! $comment !!}
 {!! $user->bio !!}
 {!! nl2br($text) !!}
@@ -1154,7 +1154,7 @@ $users = User::orderBy($sort, $direction)->get();
 
 **Why it fails:**
 
-`{!! !!}` in Blade explicitly disables HTML escaping. It is intended for rendering trusted HTML (e.g., from a Markdown parser you control). Using it with any user-supplied field — even one that seems plain text — is XSS. This is particularly common with WYSIWYG editor output, where developers assume the editor's own client-side sanitization is sufficient.
+`{!! !!}` in Blade explicitly disables HTML escaping. It is intended for rendering trusted HTML (e.g., from a Markdown parser you control). Using it with any user-supplied field ÔÇö even one that seems plain text ÔÇö is XSS. This is particularly common with WYSIWYG editor output, where developers assume the editor's own client-side sanitization is sufficient.
 
 **Fixed pattern:**
 
@@ -1188,7 +1188,7 @@ APP_ENV=production
 
 **Why it fails:**
 
-With `APP_DEBUG=true`, Laravel's exception handler renders full Whoops stack traces to the browser. These traces include: the full exception message and stack, the values of all variables in the call frame, a snippet of the source file, and — critically — the rendered `.env` file contents when the error occurs during bootstrap. A single 500 error exposes `DB_PASSWORD`, `MAIL_PASSWORD`, `AWS_SECRET_ACCESS_KEY`, and `APP_KEY` to any observer.
+With `APP_DEBUG=true`, Laravel's exception handler renders full Whoops stack traces to the browser. These traces include: the full exception message and stack, the values of all variables in the call frame, a snippet of the source file, and ÔÇö critically ÔÇö the rendered `.env` file contents when the error occurs during bootstrap. A single 500 error exposes `DB_PASSWORD`, `MAIL_PASSWORD`, `AWS_SECRET_ACCESS_KEY`, and `APP_KEY` to any observer.
 
 **Fixed pattern:**
 
@@ -1199,7 +1199,7 @@ APP_ENV=production
 ```
 
 ```php
-// In AppServiceProvider or bootstrap — add a fallback check
+// In AppServiceProvider or bootstrap ÔÇö add a fallback check
 if (config('app.debug') && app()->environment('production')) {
     throw new RuntimeException('APP_DEBUG must not be true in production');
 }
@@ -1218,7 +1218,7 @@ APP_KEY=base64:abc123...
 
 **Why it fails:**
 
-`APP_KEY` is used to sign and encrypt Laravel's cookies, sessions, and encrypted model attributes. In Laravel 5.x and 6.x, the `remember_me` cookie was a serialized, encrypted object. If an attacker knows `APP_KEY`, they can forge valid cookies with arbitrary serialized content — in those versions, this was a remote code execution path via PHP object injection. In newer Laravel, the immediate risk is cookie forgery and session hijacking rather than RCE.
+`APP_KEY` is used to sign and encrypt Laravel's cookies, sessions, and encrypted model attributes. In Laravel 5.x and 6.x, the `remember_me` cookie was a serialized, encrypted object. If an attacker knows `APP_KEY`, they can forge valid cookies with arbitrary serialized content ÔÇö in those versions, this was a remote code execution path via PHP object injection. In newer Laravel, the immediate risk is cookie forgery and session hijacking rather than RCE.
 
 **Fixed pattern:**
 
@@ -1226,7 +1226,7 @@ APP_KEY=base64:abc123...
 # Rotate APP_KEY if it was ever exposed:
 php artisan key:generate
 
-# This invalidates all sessions and encrypted cookies — users will be logged out.
+# This invalidates all sessions and encrypted cookies ÔÇö users will be logged out.
 # Encrypted model fields (using Laravel's Encryptable cast) will also need re-encryption.
 ```
 
@@ -1254,12 +1254,12 @@ protected function gate(): void
 }
 
 // Or: Horizon with no auth configured
-// config/horizon.php: 'middleware' => ['web']  — no auth check
+// config/horizon.php: 'middleware' => ['web']  ÔÇö no auth check
 ```
 
 **Why it fails:**
 
-Laravel Telescope (debugging tool) and Horizon (queue dashboard) are accessible without authentication when deployed to production environments where the environment check returns true for all users. Telescope exposes every request, response, SQL query, queue job, cache operation, mail, and exception — including the contents of request bodies containing passwords or tokens.
+Laravel Telescope (debugging tool) and Horizon (queue dashboard) are accessible without authentication when deployed to production environments where the environment check returns true for all users. Telescope exposes every request, response, SQL query, queue job, cache operation, mail, and exception ÔÇö including the contents of request bodies containing passwords or tokens.
 
 **Fixed pattern:**
 
@@ -1274,7 +1274,7 @@ protected function gate(): void
     });
 }
 
-// config/telescope.php — also limit which environments run Telescope
+// config/telescope.php ÔÇö also limit which environments run Telescope
 'enabled' => env('TELESCOPE_ENABLED', false),
 ```
 
@@ -1346,7 +1346,7 @@ Storage::disk('local')->put('temp/private-report.pdf', $data);
 
 **Why it fails:**
 
-`storage:link` creates a symlink from `public/storage` to `storage/app/public`. If your application stores files using `Storage::disk('local')`, those files go to `storage/app/` — not `storage/app/public/`. Misconfiguration can put private files in the public storage path, or a poorly configured web server may follow `..` traversal through the symlink into parent directories.
+`storage:link` creates a symlink from `public/storage` to `storage/app/public`. If your application stores files using `Storage::disk('local')`, those files go to `storage/app/` ÔÇö not `storage/app/public/`. Misconfiguration can put private files in the public storage path, or a poorly configured web server may follow `..` traversal through the symlink into parent directories.
 
 **Fixed pattern:**
 
@@ -1397,7 +1397,7 @@ Laravel queues serialize job objects to the queue backend (Redis, database, SQS)
 
 ```php
 // Never store user-controlled, unvalidated data as serializable job properties
-// Store IDs, not objects — fetch the data in the handle() method
+// Store IDs, not objects ÔÇö fetch the data in the handle() method
 class ProcessUserData implements ShouldQueue {
     public function __construct(
         public int $userId,      // just the ID
@@ -1419,13 +1419,13 @@ class ProcessUserData implements ShouldQueue {
 
 ```
 /var/www/app/
-├── app/
-├── config/
-├── .env          ← accessible if web root is wrong
-├── composer.json
-├── public/       ← this should be the web root
-│   └── index.php
-└── storage/
+Ôö£ÔöÇÔöÇ app/
+Ôö£ÔöÇÔöÇ config/
+Ôö£ÔöÇÔöÇ .env          ÔåÉ accessible if web root is wrong
+Ôö£ÔöÇÔöÇ composer.json
+Ôö£ÔöÇÔöÇ public/       ÔåÉ this should be the web root
+Ôöé   ÔööÔöÇÔöÇ index.php
+ÔööÔöÇÔöÇ storage/
 ```
 
 If the web server serves from `/var/www/app/` instead of `/var/www/app/public/`, then `https://yourapp.com/.env` returns the `.env` file directly.
@@ -1473,7 +1473,7 @@ $url = URL::temporarySignedRoute(
 
 **Why it fails:**
 
-A signed URL with a 100-year expiry is cryptographically identical to a permanent signed URL. If the URL is forwarded, leaked, or stored in a browser history, it remains valid until `APP_KEY` rotates. Signed URLs also do not check authorization independently — they verify only that the URL was not tampered with, not that the requesting user still has permission to access the resource.
+A signed URL with a 100-year expiry is cryptographically identical to a permanent signed URL. If the URL is forwarded, leaked, or stored in a browser history, it remains valid until `APP_KEY` rotates. Signed URLs also do not check authorization independently ÔÇö they verify only that the URL was not tampered with, not that the requesting user still has permission to access the resource.
 
 **Fixed pattern:**
 
@@ -1528,7 +1528,7 @@ $value = Crypt::decrypt($storedEncryptedValue);
 **Vulnerable pattern:**
 
 ```php
-// LoginController.php in Laravel < 8 — no rate limiting applied
+// LoginController.php in Laravel < 8 ÔÇö no rate limiting applied
 public function login(Request $request) {
     if (Auth::attempt($request->only('email', 'password'))) {
         return redirect()->intended('/');
@@ -1539,7 +1539,7 @@ public function login(Request $request) {
 
 **Why it fails:**
 
-Laravel 8 added the `throttle:login` middleware to authentication routes by default. Laravel 6.x and 7.x did not. The `AuthenticatesUsers` trait included a `hasTooManyLoginAttempts()` lockout, but only if you used the trait — custom login controllers often dropped it.
+Laravel 8 added the `throttle:login` middleware to authentication routes by default. Laravel 6.x and 7.x did not. The `AuthenticatesUsers` trait included a `hasTooManyLoginAttempts()` lockout, but only if you used the trait ÔÇö custom login controllers often dropped it.
 
 **Fixed pattern:**
 
@@ -1572,7 +1572,7 @@ public function store(Request $request) {
     $request->merge(['created_by' => auth()->id()]);
     $article = Article::create($request->all());
     // request->all() now includes everything the user sent
-    // PLUS created_by — but also role=admin if attacker adds it
+    // PLUS created_by ÔÇö but also role=admin if attacker adds it
 }
 ```
 
@@ -1651,7 +1651,7 @@ return $this->render('profile.html.twig', [
 **Vulnerable pattern:**
 
 ```yaml
-# config/packages/dev/web_profiler.yaml — sometimes misconfigured to run in prod
+# config/packages/dev/web_profiler.yaml ÔÇö sometimes misconfigured to run in prod
 web_profiler:
     toolbar: true
     intercept_redirects: false
@@ -1708,7 +1708,7 @@ Doctrine DQL is not SQL, but it has its own injection surface. String interpolat
 **Fixed pattern:**
 
 ```php
-// Use named parameters — always
+// Use named parameters ÔÇö always
 $query = $entityManager->createQuery(
     'SELECT u FROM App\Entity\User u WHERE u.id = :id'
 )->setParameter('id', $request->query->get('id'));
@@ -1780,7 +1780,7 @@ security:
 
 **Why it fails:**
 
-Symfony evaluates firewalls in order and stops at the first match. A route that matches an early, permissive firewall (`^/`) will never reach a more restrictive later firewall (`^/api/secure/`). Routes that are outside all firewall patterns are processed without any security checks — no session, no token verification, no access control evaluation.
+Symfony evaluates firewalls in order and stops at the first match. A route that matches an early, permissive firewall (`^/`) will never reach a more restrictive later firewall (`^/api/secure/`). Routes that are outside all firewall patterns are processed without any security checks ÔÇö no session, no token verification, no access control evaluation.
 
 **Fixed pattern:**
 
@@ -1902,7 +1902,7 @@ composer require symfony/security-bundle
 **Vulnerable pattern:**
 
 ```php
-// application/config/config.php — CodeIgniter 2.x defaults
+// application/config/config.php ÔÇö CodeIgniter 2.x defaults
 $config['csrf_protection'] = FALSE;  // This is the default
 ```
 
@@ -1967,7 +1967,7 @@ $query = $this->db->get('users');
 
 **Why it fails:**
 
-CI's `where($key, $value)` escapes the `$value` but not the `$key` (column name). An attacker who controls the column name can inject: `WHERE (SELECT password FROM users LIMIT 1) = 'known_hash'` — a blind comparison that reveals data through true/false responses.
+CI's `where($key, $value)` escapes the `$value` but not the `$key` (column name). An attacker who controls the column name can inject: `WHERE (SELECT password FROM users LIMIT 1) = 'known_hash'` ÔÇö a blind comparison that reveals data through true/false responses.
 
 **Fixed pattern:**
 
@@ -1998,7 +1998,7 @@ $this->upload->do_upload('userfile');
 
 **Why it fails:**
 
-CodeIgniter's Upload library checks the file extension against `allowed_types` and checks the HTTP-supplied MIME type (`$_FILES['userfile']['type']`) — but both of these are attacker-controlled. A PHP file with a `.jpg` extension and a manually-set MIME type of `image/jpeg` passes both checks.
+CodeIgniter's Upload library checks the file extension against `allowed_types` and checks the HTTP-supplied MIME type (`$_FILES['userfile']['type']`) ÔÇö but both of these are attacker-controlled. A PHP file with a `.jpg` extension and a manually-set MIME type of `image/jpeg` passes both checks.
 
 **Fixed pattern:**
 
@@ -2052,8 +2052,8 @@ if (!$validation->withRequest($this->request)->run()) {
 }
 
 $name = $this->request->getPost('name');
-// Output escaping at the template layer — not at input time
-echo esc($name);  // CI 4's esc() helper — context-aware escaping
+// Output escaping at the template layer ÔÇö not at input time
+echo esc($name);  // CI 4's esc() helper ÔÇö context-aware escaping
 ```
 
 ---
@@ -2098,27 +2098,27 @@ location ^~ /application/ {
 ```php
 // CI 3: $this->input->post()
 // CI 4: $this->request->getPost()
-// — If old code is copied to CI 4, $this->input is still accessible
+// ÔÇö If old code is copied to CI 4, $this->input is still accessible
 //   via a compatibility layer but $this->input->post('name', TRUE)
 //   silently drops the XSS filter (TRUE is ignored)
 
 // CI 3: $this->session->set_userdata()
 // CI 4: $this->session->set() or session()->set()
-// — Old CI 3 code using set_userdata() may fail silently or use
+// ÔÇö Old CI 3 code using set_userdata() may fail silently or use
 //   a compatibility shim that does not apply CI 4's session driver
 
 // CI 3: form_validation with callbacks
 $this->form_validation->set_rules('email', 'Email', 'callback_check_email');
 // CI 4: callbacks are still supported but the method must be on the controller
-// — If CI 4 resolves the callback differently, validation may silently pass
+// ÔÇö If CI 4 resolves the callback differently, validation may silently pass
 
 // CI 3: 'global_xss_filtering' in config
 $config['global_xss_filtering'] = TRUE;
-// CI 4: this config key is IGNORED — it no longer exists
-// — Upgrading to CI 4 with this config set gives a false sense of security
+// CI 4: this config key is IGNORED ÔÇö it no longer exists
+// ÔÇö Upgrading to CI 4 with this config set gives a false sense of security
 ```
 
-**Fixed pattern:** Audit every input access point during CI 3 → CI 4 migration. Do not assume any CI 3 security control carries over automatically.
+**Fixed pattern:** Audit every input access point during CI 3 ÔåÆ CI 4 migration. Do not assume any CI 3 security control carries over automatically.
 
 ---
 
@@ -2162,7 +2162,7 @@ public $baseURL = 'https://yourapp.example.com/';
 **Vulnerable pattern:**
 
 ```volt
-{# Volt template — raw block bypasses autoescaping #}
+{# Volt template ÔÇö raw block bypasses autoescaping #}
 {%- raw -%}
 {{ user.comment }}
 {%- endraw -%}
@@ -2180,7 +2180,7 @@ Volt autoescapes output by default. `{%- raw -%}` blocks and `{% autoescape fals
 **Fixed pattern:**
 
 ```volt
-{# Use default autoescape — Volt escapes {{ variable }} automatically #}
+{# Use default autoescape ÔÇö Volt escapes {{ variable }} automatically #}
 {{ user.comment }}
 
 {# If you need raw HTML from a trusted source: sanitize in PHP before passing to template #}
@@ -2238,7 +2238,7 @@ $hash = $security->hash($password);
 
 **Why it fails:**
 
-A bcrypt cost factor of 8 is too low for current hardware. The recommended minimum is 12 for most applications. Phalcon's `Security::hash()` uses bcrypt, and the work factor defaults to 8 in older versions. Passwords hashed with cost 8 can be brute-forced significantly faster than those hashed with cost 12–14.
+A bcrypt cost factor of 8 is too low for current hardware. The recommended minimum is 12 for most applications. Phalcon's `Security::hash()` uses bcrypt, and the work factor defaults to 8 in older versions. Passwords hashed with cost 8 can be brute-forced significantly faster than those hashed with cost 12ÔÇô14.
 
 **Fixed pattern:**
 
@@ -2346,19 +2346,19 @@ echo '<script>var username = ' . json_encode($row['username']) . ';</script>';
 **Vulnerable pattern:**
 
 ```php
-// index.php — routing by GET parameter
+// index.php ÔÇö routing by GET parameter
 $page = $_GET['page'];
 include($page . '.php');
 
 // Or with "safety" measures that are insufficient:
-$page = basename($_GET['page']);  // strips path separators — but not enough
+$page = basename($_GET['page']);  // strips path separators ÔÇö but not enough
 include('pages/' . $page . '.php');
 
 // Attacks:
-// ?page=../config             → includes config.php (path traversal)
-// ?page=php://input           → includes and executes POST body as PHP
-// ?page=data://text/plain,<?php system('id'); ?>&   → data: URI execution
-// ?page=/proc/self/environ    → if log poisoning has worked
+// ?page=../config             ÔåÆ includes config.php (path traversal)
+// ?page=php://input           ÔåÆ includes and executes POST body as PHP
+// ?page=data://text/plain,<?php system('id'); ?>&   ÔåÆ data: URI execution
+// ?page=/proc/self/environ    ÔåÆ if log poisoning has worked
 ```
 
 **Why it fails:**
@@ -2411,7 +2411,7 @@ if (verify_credentials($_POST['user'], $_POST['pass'])) {
 **Fixed pattern:**
 
 ```php
-// Secure session configuration — set before session_start()
+// Secure session configuration ÔÇö set before session_start()
 ini_set('session.use_only_cookies', 1);
 ini_set('session.cookie_httponly', 1);
 ini_set('session.cookie_secure', 1);   // requires HTTPS
@@ -2454,7 +2454,7 @@ $stmt->execute([':id' => $_GET['id']]);
 
 // mysqli with incorrectly typed binding:
 $stmt = $mysqli->prepare('SELECT * FROM users WHERE id = ?');
-$stmt->bind_param('s', $_GET['id']);  // 's' = string — should be 'i' for integer
+$stmt->bind_param('s', $_GET['id']);  // 's' = string ÔÇö should be 'i' for integer
 // Not a security hole, but means an integer column gets a string comparison
 ```
 
@@ -2497,7 +2497,7 @@ $hash = sha1($password);
 $hash = sha256($password);
 $hash = md5($password . $salt);
 $hash = sha1($salt . $password . $salt);
-$hash = crypt($password);        // crypt() with no explicit algorithm uses DES — 8-char limit
+$hash = crypt($password);        // crypt() with no explicit algorithm uses DES ÔÇö 8-char limit
 $hash = crypt($password, $salt); // only safe if salt starts with '$2y$' (bcrypt)
 ```
 
@@ -2511,7 +2511,7 @@ All fast hash functions (MD5, SHA-1, SHA-256) are wrong for passwords regardless
 // PHP 5.5+: password_hash() / password_verify()
 $hash = password_hash($password, PASSWORD_BCRYPT, ['cost' => 12]);
 
-// Verification — also checks if rehashing is needed
+// Verification ÔÇö also checks if rehashing is needed
 function verify_and_rehash(string $password, string $hash, PDO $db, int $userId): bool {
     if (!password_verify($password, $hash)) {
         return false;
@@ -2545,10 +2545,10 @@ readfile('files/' . $_GET['name']);
 file_put_contents('logs/' . $_GET['filename'], $_POST['data']);
 
 // Attacks:
-// ?file=../config.php            → reads application config
-// ?file=../../../etc/passwd      → reads system files
-// ?name=../../wp-config.php      → path traversal to WP config
-// filename=../../cron.php&data=<?php system($_GET['cmd']); ?>  → webshell
+// ?file=../config.php            ÔåÆ reads application config
+// ?file=../../../etc/passwd      ÔåÆ reads system files
+// ?name=../../wp-config.php      ÔåÆ path traversal to WP config
+// filename=../../cron.php&data=<?php system($_GET['cmd']); ?>  ÔåÆ webshell
 ```
 
 **Fixed pattern:**
@@ -2582,4 +2582,4 @@ readfile($path);
 
 ---
 
-*Last reviewed: 2025 | Applies to: PHP 5.x, PHP 7.x, PHP 8.x — Laravel, Symfony, CodeIgniter, Phalcon, and pure PHP applications*
+*Last reviewed: 2025 | Applies to: PHP 5.x, PHP 7.x, PHP 8.x ÔÇö Laravel, Symfony, CodeIgniter, Phalcon, and pure PHP applications*
