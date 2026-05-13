@@ -76,7 +76,7 @@ This transforms your server from "internet-facing" to "Cloudflare-backend." The 
 
   A proxied record hides your origin IP. An unproxied (grey cloud) record exposes it.
 
-  ```
+  ```text
   A    yourdomain.com        →  YOUR.SERVER.IP     [orange cloud = PROXIED]
   A    www.yourdomain.com    →  YOUR.SERVER.IP     [orange cloud = PROXIED]
   ```
@@ -258,7 +258,7 @@ Cloudflare's WAF blocks requests matching known attack patterns — SQLi, XSS, p
 
   Cloudflare → Security → WAF → Custom Rules → Create rule:
 
-  ```
+  ```text
   Rule name: Protect wp-login
   If: (http.request.uri.path contains "/wp-login.php") 
       AND (not ip.src in {YOUR.HOME.IP/32})
@@ -296,7 +296,7 @@ Cloudflare free tier includes basic rate limiting (up to 10,000 requests/10 minu
 - [ ] **Rate limit wp-login.php** — 5 requests per minute per IP.
 
   Cloudflare → Security → WAF → Rate Limiting Rules → Create rule:
-  ```
+  ```text
   Path: /wp-login.php
   Method: POST
   Requests: 5 per 60 seconds
@@ -305,7 +305,7 @@ Cloudflare free tier includes basic rate limiting (up to 10,000 requests/10 minu
 
 - [ ] **Rate limit wp-admin** — 60 requests per minute (legitimate admins rarely exceed this).
 
-  ```
+  ```text
   Path: /wp-admin/*
   Requests: 60 per 60 seconds
   Action: Managed Challenge
@@ -337,7 +337,7 @@ See also the DNS Security section in `local-to-production-checklist.md`.
 
 - [ ] **Add CAA record** to restrict certificate issuance.
 
-  ```
+  ```text
   Type: CAA
   Name: yourdomain.com
   Value: 0 issue "letsencrypt.org"
