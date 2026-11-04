@@ -424,7 +424,7 @@ None of the options below fix the problem. They buy time, at a price, while the 
 ### Commercial extended lifecycle support
 
 - [ ] **Consider paid extended support only as a bridge with a dated exit.** Options at the time of writing:
-  - **TuxCare Extended Lifecycle Support for PHP:** patched builds of EOL branches. Coverage of specific branches varies by channel (some list 5.6 to 8.1, some up to 8.2); check [docs.tuxcare.com/els-for-languages/php/](https://docs.tuxcare.com/els-for-languages/php/) for the current list.
+  - **TuxCare Extended Lifecycle Support for PHP:** patched builds of EOL branches. Coverage of specific branches varies by channel (some list 5.6 to 8.1, some up to 8.2); check [docs.tuxcare.com/els-for-languages/php/](https://docs.tuxcare.com/els-for-runtimes/php/) for the current list.
   - **Freexian Extended LTS (ELTS):** extends Debian releases after Debian LTS ends, for the packages subscribers use. [freexian.com/lts/extended](https://www.freexian.com/lts/extended/)
   - **Zend PHP LTS:** vendor-stated coverage of 7.4 through December 2026 and 8.1 through December 2027. Note that 7.4 coverage ends within weeks.
 
