@@ -14,14 +14,15 @@
 4. [WordPress REST API](#4-wordpress-rest-api)
 5. [Login Security](#5-login-security)
 6. [File Permissions](#6-file-permissions)
-7. [Plugin Supply Chain Security](#7-plugin-supply-chain-security)
-8. [WP-Admin Access Strategy](#8-wp-admin-access-strategy)
-9. [WordPress Salts](#9-wordpress-salts)
-10. [Version Disclosure](#10-version-disclosure)
-11. [Email Security (SPF / DKIM / DMARC)](#11-email-security-spf--dkim--dmarc)
-12. [Backup](#12-backup)
-13. [Red Flags to Check](#13-red-flags-to-check)
-14. [Regular Audit Commands](#14-regular-audit-commands)
+7. [WordPress Core, Theme and Runtime Integrity](#7-wordpress-core-theme-and-runtime-integrity)
+8. [Plugin Supply Chain Security](#8-plugin-supply-chain-security)
+9. [WP-Admin Access Strategy](#9-wp-admin-access-strategy)
+10. [WordPress Salts](#10-wordpress-salts)
+11. [Version Disclosure](#11-version-disclosure)
+12. [Email Security (SPF / DKIM / DMARC)](#12-email-security-spf--dkim--dmarc)
+13. [Backup](#13-backup)
+14. [Red Flags to Check](#14-red-flags-to-check)
+15. [Regular Audit Commands](#15-regular-audit-commands)
 
 ---
 
@@ -333,7 +334,7 @@
 
   > **Why this matters:** If an attacker finds a code injection vulnerability (RCE), `disable_functions` is a second layer preventing them from running system commands. It does not prevent all attacks, but it raises the bar significantly.
 
-  > **`mail`, `putenv`, and `dl` are required here** to block the Chankro disable_functions bypass: an attacker calls `putenv('LD_PRELOAD=/tmp/evil.so')` to set the dynamic linker environment variable, then calls `mail()` — which forks a `sendmail` subprocess. That subprocess inherits `LD_PRELOAD` and loads the malicious `.so` file, executing arbitrary code completely outside PHP's disable_functions list. `dl()` loads PHP extensions at runtime, bypassing disable_functions directly. WordPress does not require any of these three functions when using an SMTP relay plugin (see Section 11) — `wp_mail()` goes through the SMTP plugin, not PHP's `mail()`.
+  > **`mail`, `putenv`, and `dl` are required here** to block the Chankro disable_functions bypass: an attacker calls `putenv('LD_PRELOAD=/tmp/evil.so')` to set the dynamic linker environment variable, then calls `mail()` — which forks a `sendmail` subprocess. That subprocess inherits `LD_PRELOAD` and loads the malicious `.so` file, executing arbitrary code completely outside PHP's disable_functions list. `dl()` loads PHP extensions at runtime, bypassing disable_functions directly. WordPress does not require any of these three functions when using an SMTP relay plugin (see Section 12) — `wp_mail()` goes through the SMTP plugin, not PHP's `mail()`.
 
   > **Note:** Some plugins or CLI tools (like WP-CLI) may use the other functions in this list. Test after applying. `proc_open` is used by some plugins; remove it from the list only if you have a verified need.
 
@@ -606,7 +607,231 @@
 
 ---
 
-## 7. Plugin Supply Chain Security
+## 7. WordPress Core, Theme and Runtime Integrity
+
+> The rest of this guide hardens what surrounds WordPress. This section checks WordPress itself: whether core still receives security fixes, whether the files on disk are the files WordPress shipped, and which code runs outside the normal plugin list. Several items here are silent failures. Nothing errors, the site keeps working, and it simply stops being patched.
+
+Commands are shown as plain WP-CLI. In Docker, prefix them with `docker exec --user www-data WORDPRESS_CONTAINER` (see Section 1 for why `--user www-data` is preferred over `--allow-root`). The official `wordpress:*-fpm` images do not include WP-CLI: add it to your image, or run the `wordpress:cli` image against the same volume.
+
+### Core Version and Support Status
+
+- [ ] **Know your exact core version and whether an update is pending.**
+
+  ```bash
+  wp core version --extra
+  wp core check-update
+
+  # Docker:
+  docker exec --user www-data WORDPRESS_CONTAINER wp core version --extra
+  docker exec --user www-data WORDPRESS_CONTAINER wp core check-update
+  ```
+
+  `check-update` splits offers into `minor` (security and maintenance releases on your branch) and `major`. `Success: WordPress is at the latest version.` means nothing newer is offered. If the request to api.wordpress.org fails, it prints `Warning: Failed to check for updates` instead. In a scheduled check, treat that warning as "unknown", not as "up to date".
+
+- [ ] **Run the latest major branch. Treat everything else as unsupported.** WordPress officially supports only the most recent release. Security fixes are also published for older branches, but only "as a courtesy" (wording from the release notes). For example, the 7.1.1 security release (September 2026) announced backports down to the 4.7 branch, and branches 4.6 and earlier no longer receive security updates at all.
+
+  > **Why this matters:** "We are on an old branch but still get security releases" is true only while the security team chooses to backport. There is no commitment on scope or timing, and the cutoff moves forward (the 3.7 to 4.0 branches were dropped in 2022, and 4.1 to 4.6 have since been dropped too). Plan upgrades to the current branch; do not build a maintenance strategy on courtesy releases. Check the release archive at https://wordpress.org/download/releases/ and announcements at https://make.wordpress.org/security/.
+
+### PHP Compatibility Gate
+
+- [ ] **Confirm your PHP version can run the current WordPress release.** Every release declares a minimum PHP version. WordPress 6.6 raised it to PHP 7.2.24 and WordPress 7.0 raised it to PHP 7.4 (Trac #62622). The wordpress.org requirements page currently recommends PHP 8.3 or greater.
+
+  ```bash
+  # PHP actually serving requests (the PHP-FPM container), not just the CLI
+  docker exec WORDPRESS_CONTAINER php -v
+
+  # PHP used by WP-CLI (can differ, e.g. when using the separate wordpress:cli image)
+  wp --info | grep -i 'php version'
+
+  # Minimum PHP declared by the installed core
+  wp eval 'global $required_php_version; echo $required_php_version, PHP_EOL;'
+  ```
+
+  > **Why this matters:** The update API keeps offering the newest release even when your PHP is too old for it, so `wp core check-update` still lists it. The install is then refused (`The update cannot be installed because WordPress X requires PHP version Y or higher.`), background updates quietly stay on the last branch your PHP can run, and the dashboard shows only a notice. The site is now living on courtesy backports. When the security team stops backporting to that branch, security releases stop arriving and nothing reports an error. Upgrading PHP is a security task, not a performance task. See `php-version-upgrade-path.md`.
+
+### Core File Integrity
+
+- [ ] **Verify core files against the official checksums.**
+
+  ```bash
+  wp core verify-checksums
+  # Also flag non-WordPress files in the webroot itself (WP-CLI 2.8+)
+  wp core verify-checksums --include-root
+
+  # Docker:
+  docker exec --user www-data WORDPRESS_CONTAINER wp core verify-checksums --include-root
+  ```
+
+  How to read the output:
+  - `File doesn't verify against checksum: wp-includes/...` means a core file was modified. Either someone patched core by hand (it will be overwritten by the next update) or it was backdoored. Treat it as a compromise until proven otherwise.
+  - `File doesn't exist` means a core file is missing, usually a broken or partial update.
+  - `File should not exist: wp-includes/...` means an extra file sits inside `wp-admin/`, `wp-includes/` or among the root `wp-*.php` files. Attackers drop webshells there because few people look.
+
+  > **Silent failure in automation:** `File should not exist` is printed as a warning only. If every shipped file matches, the command still ends with `Success` and exit code 0. A cron job that only checks the exit code will never alert on a dropped webshell. Fail on any `Warning:` line as well:
+  > ```bash
+  > out=$(wp core verify-checksums --include-root 2>&1); rc=$?
+  > if [ "$rc" -ne 0 ] || echo "$out" | grep -q '^Warning:'; then echo "$out"; fi
+  > ```
+
+- [ ] **Verify plugin files against the official checksums.**
+
+  ```bash
+  wp plugin verify-checksums --all
+  # --strict also flags "soft" changes such as readme.txt edits
+  wp plugin verify-checksums --all --strict
+  ```
+
+  > This only works for plugins hosted on wordpress.org, because the checksums come from wordpress.org. Premium, custom and vendor-distributed plugins are reported as `Could not retrieve the checksums ... skipping` and are not checked at all. For those, keep the vendor ZIP of the installed version and diff against it, or deploy them from version control and compare the deployed tree to the repository.
+
+### What Checksums Do NOT Cover
+
+- [ ] **Review the code that runs outside the checksum scope.** Core verification ignores `wp-content/` and `wp-config.php`. Plugin verification ignores drop-ins, and must-use plugins are either skipped (older WP-CLI) or only checked when they match a wordpress.org plugin; custom loaders are never verified. These are classic persistence spots after a compromise because they load on every request, cannot be deactivated from the admin, and rarely get inspected.
+
+  ```bash
+  # Must-use plugins: every PHP file directly in wp-content/mu-plugins/ is loaded automatically
+  wp plugin list --status=must-use
+  ls -la /var/www/html/wp-content/mu-plugins/
+
+  # Drop-ins: special files in wp-content/ that replace core behaviour
+  wp plugin list --status=dropin
+  ls -la /var/www/html/wp-content/*.php
+  ```
+
+  Known drop-in names: `advanced-cache.php` (loaded when `WP_CACHE` is true), `db.php`, `db-error.php`, `install.php`, `maintenance.php`, `object-cache.php`, `php-error.php`, `fatal-error-handler.php`, and on multisite `sunrise.php` (when `SUNRISE` is set), `blog-deleted.php`, `blog-inactive.php`, `blog-suspended.php`. Every drop-in on your system should map to a plugin you knowingly installed (for example a caching plugin owning `advanced-cache.php`). `db.php` and `object-cache.php` run before almost anything else and can intercept every query.
+
+- [ ] **Review `wp-config.php` and per-directory PHP config files.**
+
+  ```bash
+  # PHP-FPM reads .user.ini files per directory; auto_prepend_file there runs code before every script
+  find /var/www/html -name '.user.ini' -o -name 'php.ini' | xargs -r grep -Hn . 2>/dev/null
+
+  # wp-config.php: look for anything you did not put there
+  grep -nE 'eval|base64_decode|gzinflate|str_rot13|assert|include|require|auto_prepend' /var/www/html/wp-config.php
+
+  # Non-core PHP files in the webroot (complements --include-root)
+  find /var/www/html -maxdepth 1 -type f -name '*.php' ! -name 'wp-*.php' ! -name 'index.php' ! -name 'xmlrpc.php'
+  ```
+
+  > Keep a known-good copy of `wp-config.php` (or generate it from your deployment config) and diff against it. An unexpected `require` of a file in `uploads/` or `/tmp`, or an `auto_prepend_file` in a `.user.ini`, is a backdoor loader.
+
+### Themes
+
+- [ ] **List themes and remove what you do not use.** Inactive themes are not loaded by WordPress, but their PHP files are still on disk and many can be requested directly over HTTP. A vulnerable inactive theme is exploitable in the same way as a vulnerable inactive plugin (Section 8).
+
+  ```bash
+  wp theme list --fields=name,status,version,update,auto_update
+  wp theme delete THEME_NAME
+  ```
+
+  Keep the `active` theme, its `parent` (if you use a child theme), and exactly one current bundled default theme as a fallback. WordPress falls back to the default theme if the active theme's files are missing or invalid; without one, a deleted or broken theme directory takes the whole front end down. Delete every other theme.
+
+- [ ] **Treat themes as supply chain, like plugins.** Apply the vetting checklist from Section 8 to themes. A theme removed from wordpress.org (shown as `closed` in WPVulnerability results, see below) or not updated across several major WordPress releases is effectively abandoned. Premium themes often bundle outdated copies of plugins and libraries; check the bundled plugins separately.
+
+### Vulnerability Lookup Without a Paid Token
+
+- [ ] **Check core, plugins and themes against a vulnerability database on a schedule.** Free options as of late 2026:
+
+  - **WPVulnerability** (`www.wpvulnerability.net`): free, no API key, JSON per core version, plugin slug or theme slug.
+  - **WPScan API**: free tier with a small daily request quota (one request per core version, plugin and theme). The free tier is intended for non-commercial use; check the current limits on wpscan.com before relying on it.
+  - **Wordfence Intelligence**: free vulnerability data feed. The unauthenticated v1 and v2 feed endpoints were disabled on 9 March 2026. The current v3 feed requires a free API key from a wordfence.com account; see the Wordfence Intelligence documentation for the endpoint and headers.
+
+  ```bash
+  # Core: vulnerabilities affecting the installed version
+  curl -s "https://www.wpvulnerability.net/core/$(wp core version)/" \
+    | jq -r '.data.vulnerability[]? | .source[].id'
+
+  # Plugin by slug: returns all known issues for the slug, each with a version range
+  curl -s "https://www.wpvulnerability.net/plugin/contact-form-7/" \
+    | jq -r '.data.closed, (.data.vulnerability[]? | .name)'
+
+  # Theme by slug
+  curl -s "https://www.wpvulnerability.net/theme/twentyfifteen/" \
+    | jq -r '.data.vulnerability[]? | .name'
+
+  # All installed plugins (compare each name's version range to the installed version)
+  wp plugin list --fields=name,version --format=csv | tail -n +2 | while IFS=, read -r slug ver; do
+    echo "== $slug $ver"
+    curl -s "https://www.wpvulnerability.net/plugin/$slug/" | jq -r '.data.vulnerability[]? | .name'
+  done
+
+  # WPScan API (free token), e.g. a plugin slug
+  curl -s -H "Authorization: Token token=YOUR_WPSCAN_TOKEN" \
+    "https://wpscan.com/api/v3/plugins/contact-form-7"
+  ```
+
+  > The plugin and theme endpoints return every known issue for the slug, not only those affecting your version. Entry names include the affected range (for example `< 5.3.2`), and `.operator.max_version` / `.operator.unfixed` give it in structured form. A `closed` value of `1` means the plugin or theme was removed from wordpress.org. For alerting and feed choices see `vulnerability-intelligence.md`.
+
+### Automatic Updates vs `DISALLOW_FILE_MODS`
+
+- [ ] **Do not rely on `WP_AUTO_UPDATE_CORE` when `DISALLOW_FILE_MODS` is true.** This guide recommends both (Section 1 and Section 8), and together they cancel each other out. With `DISALLOW_FILE_MODS` set to true, `wp_is_file_mod_allowed('automatic_updater')` returns false, so `WP_Automatic_Updater::is_disabled()` returns true and WordPress runs no background updates at all: no core minor releases, no plugin, theme or translation updates. `WP_AUTO_UPDATE_CORE = 'minor'` then does nothing. The same constant also removes the `update_core` capability, so admins no longer see the update screen either.
+
+  > **Silent failure:** the site looks configured for automatic security releases, but it will never apply one. Nothing logs an error. Core security updates must now come from your deployment pipeline.
+
+  Fix: keep `DISALLOW_FILE_MODS` and make updates part of deployment. WP-CLI does not check `DISALLOW_FILE_MODS` (neither does WordPress's `Core_Upgrader`), so it can update core from the deploy job:
+
+  ```bash
+  # In the deploy pipeline or a scheduled job, as the user that owns the core files
+  docker exec --user www-data WORDPRESS_CONTAINER wp core check-update
+  docker exec --user www-data WORDPRESS_CONTAINER wp core update --minor
+  docker exec --user www-data WORDPRESS_CONTAINER wp core update-db
+  docker exec --user www-data WORDPRESS_CONTAINER wp core verify-checksums
+  ```
+
+  If core files are owned by root (Section 6), run the update as the owning user and restore ownership afterwards. Subscribe to WordPress release announcements so a security release triggers a deploy within days, not at the next planned maintenance.
+
+- [ ] **In Docker, do not assume pulling a new image updates WordPress.** The official image declares `VOLUME /var/www/html`, and its entrypoint copies WordPress from `/usr/src/wordpress` only when neither `index.php` nor `wp-includes/version.php` exists in `/var/www/html`. Once the volume holds an install, pulling `wordpress:7.1-php8.4-fpm` with a newer patch release and recreating the container changes PHP and the image, but the core files served from the volume stay at the old version. This also applies when you never declared a volume yourself: Docker Compose reuses the container's anonymous volume on recreate unless you pass `--renew-anon-volumes`.
+
+  ```bash
+  # Version shipped in the image vs version actually running from the volume
+  docker exec WORDPRESS_CONTAINER grep "wp_version =" /usr/src/wordpress/wp-includes/version.php
+  docker exec WORDPRESS_CONTAINER grep "wp_version =" /var/www/html/wp-includes/version.php
+  ```
+
+  If they differ, core in the volume is stale. Pin the image to a major.minor tag with an explicit PHP version (for example `wordpress:7.1-php8.4-fpm`, not `latest`), rebuild and redeploy on every WordPress and PHP release, and run `wp core update --minor` plus `wp core verify-checksums` as part of that deploy so the volume follows the image.
+
+### Users and Roles Audit
+
+- [ ] **List every account that can take over the site.** Administrators, and anyone with `edit_users` or `promote_users`, can create or elevate accounts.
+
+  ```bash
+  wp user list --role=administrator --fields=ID,user_login,user_email,user_registered
+  # WP_User_Query capability filter (WordPress 5.9+)
+  wp user list --capability=promote_users --fields=ID,user_login,roles
+  wp user list --capability=edit_users --fields=ID,user_login,roles
+  # Multisite: network super admins
+  wp super-admin list
+  ```
+
+- [ ] **Check roles and capabilities for anything non-standard.** A default single-site install has five roles: `administrator`, `editor`, `author`, `contributor`, `subscriber`. Plugins add more (for example shop or SEO roles). A role you cannot attribute to a plugin, or a low-privilege role holding `edit_users`, `promote_users`, `edit_plugins`, `install_plugins` or `unfiltered_html`, is a red flag.
+
+  ```bash
+  wp role list --fields=name,role
+  wp cap list administrator
+  wp cap list subscriber
+
+  # Raw role definitions (option name uses your table prefix)
+  wp option get "$(wp db prefix)user_roles" --format=json | jq 'keys'
+
+  # Capabilities granted directly to a single user, outside any role
+  wp user list-caps USER_ID
+  ```
+
+- [ ] **Cross-check administrators directly in the database.** Malware commonly hides its admin account from the Users screen with a query filter. `--skip-plugins --skip-themes` reduces that risk, but WP-CLI still loads must-use plugins, so the database query is the authoritative check.
+
+  ```bash
+  PREFIX=$(wp db prefix)
+  wp db query "SELECT u.ID, u.user_login, u.user_email, u.user_registered
+    FROM ${PREFIX}users u JOIN ${PREFIX}usermeta m ON m.user_id = u.ID
+    WHERE m.meta_key = '${PREFIX}capabilities' AND m.meta_value LIKE '%administrator%';"
+  ```
+
+  Compare the count with `wp user list --role=administrator --skip-plugins --skip-themes`. Any account present in the database but missing from the WP-CLI list is being hidden on purpose.
+
+- [ ] **Remove stale accounts.** WordPress core does not record last login. Use your 2FA or login-logging plugin, or the presence of active sessions (`wp user session list USER_ID`), to find accounts nobody uses, then delete or downgrade them. Reassign content when deleting: `wp user delete USER_ID --reassign=OTHER_USER_ID`.
+
+---
+
+## 8. Plugin Supply Chain Security
 
 > Plugins are the primary vector for WordPress compromises. Most WordPress site hacks exploit vulnerable plugins, not WordPress core. Supply chain attacks — where a legitimate plugin is taken over, sold, or abandoned and then injected with malicious code — are increasingly common.
 
@@ -671,7 +896,7 @@ Run through these for every plugin before adding it to production:
 
 ---
 
-## 8. WP-Admin Access Strategy
+## 9. WP-Admin Access Strategy
 
 > The `/wp-admin` path is the highest-value target on any WordPress installation. Rate limiting helps, but an additional layer (IP allowlist or Basic Auth) stops untargeted scanners and credential stuffing entirely.
 
@@ -751,7 +976,7 @@ See `cloudflare-hardening.md` Section 6 for WAF rules that challenge or block `w
 
 ---
 
-## 9. WordPress Salts
+## 10. WordPress Salts
 
 > Salts and secret keys are used to secure WordPress authentication cookies. Weak or default salts allow session forgery.
 
@@ -792,7 +1017,7 @@ See `cloudflare-hardening.md` Section 6 for WAF rules that challenge or block `w
 
 ---
 
-## 10. Version Disclosure
+## 11. Version Disclosure
 
 > Disclosing your WordPress version and plugin versions helps attackers find applicable CVEs quickly. Remove all version hints.
 
@@ -837,7 +1062,7 @@ See `cloudflare-hardening.md` Section 6 for WAF rules that challenge or block `w
 
 ---
 
-## 11. Email Security (SPF / DKIM / DMARC)
+## 12. Email Security (SPF / DKIM / DMARC)
 
 > WordPress sends email: password resets, contact form submissions, admin notifications. Without proper email authentication, these emails are easily spoofed — an attacker can send phishing emails that appear to come from your domain. Email security is also required for password reset emails to reliably reach inboxes.
 
@@ -946,7 +1171,7 @@ WordPress contact forms (Contact Form 7, WPForms, Gravity Forms) are a common sp
 
 ---
 
-## 12. Backup
+## 13. Backup
 
 > See the Linux hardening guide for the full backup strategy. WordPress-specific additions:
 
@@ -967,7 +1192,7 @@ WordPress contact forms (Contact Form 7, WPForms, Gravity Forms) are a common sp
 
 ---
 
-## 13. Red Flags to Check
+## 14. Red Flags to Check
 
 > Run these checks periodically and always after a security incident. Each item represents a common misconfiguration or compromise indicator.
 
@@ -1015,7 +1240,7 @@ WordPress contact forms (Contact Form 7, WPForms, Gravity Forms) are a common sp
 
 ---
 
-## 14. Regular Audit Commands
+## 15. Regular Audit Commands
 
 > Run these on a schedule (monthly minimum) and after any significant change.
 
@@ -1057,6 +1282,48 @@ find /var/www/html -name "*.php" -newer /var/www/html/wp-config.php -mtime -7
 curl -vI https://yourdomain.com 2>&1 | grep -iE 'SSL|TLS|expire|issuer'
 ```
 
+Core, theme and runtime integrity checks (Section 7). In Docker, prefix the `wp` commands with `docker exec --user www-data WORDPRESS_CONTAINER`.
+
+```bash
+# Core version and pending updates (a "Failed to check" warning means unknown, not current)
+wp core version --extra
+wp core check-update
+
+# PHP serving requests vs minimum PHP required by installed core
+docker exec WORDPRESS_CONTAINER php -v
+wp eval 'global $required_php_version; echo $required_php_version, PHP_EOL;'
+
+# Core in the volume vs core shipped in the image (should match)
+docker exec WORDPRESS_CONTAINER grep "wp_version =" /usr/src/wordpress/wp-includes/version.php /var/www/html/wp-includes/version.php
+
+# Core checksums: alert on non-zero exit AND on any Warning line ("File should not exist" exits 0)
+out=$(wp core verify-checksums --include-root 2>&1); rc=$?
+if [ "$rc" -ne 0 ] || echo "$out" | grep -q '^Warning:'; then echo "$out"; fi
+
+# Plugin checksums (wordpress.org plugins only; others are skipped)
+wp plugin verify-checksums --all
+
+# Code outside checksum coverage: must-use plugins, drop-ins, per-directory PHP config
+wp plugin list --status=must-use
+wp plugin list --status=dropin
+find /var/www/html -name '.user.ini' -o -name 'php.ini'
+
+# Themes: only active, its parent, and one default fallback should remain
+wp theme list --fields=name,status,version,update
+
+# Known vulnerabilities for the installed core version (free, no key)
+curl -s "https://www.wpvulnerability.net/core/$(wp core version)/" | jq -r '.data.vulnerability[]? | .source[].id'
+
+# Privileged accounts and roles
+wp user list --role=administrator --fields=ID,user_login,user_email,user_registered
+wp user list --capability=promote_users --fields=ID,user_login,roles
+wp role list --fields=name,role
+
+# Administrators straight from the database (catches accounts hidden by a query filter)
+PREFIX=$(wp db prefix)
+wp db query "SELECT u.user_login FROM ${PREFIX}users u JOIN ${PREFIX}usermeta m ON m.user_id = u.ID WHERE m.meta_key = '${PREFIX}capabilities' AND m.meta_value LIKE '%administrator%';"
+```
+
 ---
 
-*Last reviewed: 2025 | Applies to: WordPress, Nginx, PHP (modern versions)*
+*Last reviewed: 2026-11 | Applies to: WordPress, Nginx, PHP (modern versions)*
