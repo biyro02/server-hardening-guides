@@ -4,6 +4,8 @@ exclude = [
   "^https?://(localhost|127\\.0\\.0\\.1)",
   "^https?://YOUR",
   "^https?://[^/]*\\.local",
+  # GitHub returns 404 for stargazers pages to anonymous clients
+  "^https://github\\.com/[^/]+/[^/]+/stargazers",
 ]
 exclude_path = [".git"]
 accept = ["200..=299", "403", "429"]
