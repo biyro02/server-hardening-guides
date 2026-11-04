@@ -281,7 +281,7 @@
   findtime = 600
   ```
 
-  > **Use `backend = systemd` for sshd on Ubuntu 22.04 / 24.04.** On modern Ubuntu, sshd logs to journald, not to a file. Using `backend = auto` or specifying `logpath = /var/log/auth.log` causes the jail to silently find no logs and ban nothing — you think fail2ban is protecting you, but it isn't. The `systemd` backend reads from journald directly and does not use `logpath`.
+  > **Use `backend = systemd` for sshd on Ubuntu 22.04 / 24.04.** On Ubuntu installs without rsyslog (minimal and many cloud or container-derived images), sshd logs only to journald, not to a file. Check with `systemctl is-active rsyslog` and the age of `/var/log/auth.log`; `backend = systemd` works in both cases. Using `backend = auto` or specifying `logpath = /var/log/auth.log` causes the jail to silently find no logs and ban nothing — you think fail2ban is protecting you, but it isn't. The `systemd` backend reads from journald directly and does not use `logpath`.
   >
   > For nginx and other file-based jails, use `backend = auto` (or `backend = polling`) with the appropriate `logpath`.
 

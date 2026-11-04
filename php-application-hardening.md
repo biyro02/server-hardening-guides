@@ -49,7 +49,7 @@
    - [Signed URL Expiry Misuse](#signed-url-expiry-misuse)
    - [Laravel 5.x mcrypt Dependency](#laravel-5x-mcrypt-dependency)
    - [Rate Limiting Not Default in Laravel 6.x and Below](#rate-limiting-not-default-in-laravel-6x-and-below)
-   - [request()->merge() Feeding create()](#requestmerge-feeding-create)
+   - [request()->merge() Feeding create()](#request-merge-feeding-create)
 4. [Symfony](#4-symfony)
    - [Twig raw Filter](#twig-raw-filter)
    - [Web Debug Toolbar in Production](#web-debug-toolbar-in-production)

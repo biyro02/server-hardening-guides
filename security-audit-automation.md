@@ -12,7 +12,7 @@
 2. [rkhunter — Rootkit Detection](#2-rkhunter--rootkit-detection)
 3. [AIDE — File Integrity Monitoring](#3-aide--file-integrity-monitoring)
 4. [auditd — Kernel Audit Trail](#4-auditd--kernel-audit-trail)
-5. [CrowdSec — Collaborative Threat Intelligence](#5-crowdsec--collaborative-threat-intelligence)
+5. [CrowdSec + Cloudflare — Automated Threat Response](#5-crowdsec--cloudflare--automated-threat-response)
 6. [WPScan — Scheduled WordPress Scans](#6-wpscan--scheduled-wordpress-scans)
 7. [Automated Reporting Setup](#7-automated-reporting-setup)
 8. [Manual Audit Runbook](#8-manual-audit-runbook)
