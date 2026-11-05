@@ -1,0 +1,13 @@
+# Placeholder and example hosts used throughout the guides are not real links.
+exclude = [
+  "^https?://(www\\.)?(yourdomain|example)\\.(com|org)",
+  "^https?://(localhost|127\\.0\\.0\\.1)",
+  "^https?://YOUR",
+  "^https?://[^/]*\\.local",
+  # GitHub returns 404 for stargazers pages to anonymous clients
+  "^https://github\\.com/[^/]+/[^/]+/stargazers",
+]
+exclude_path = [".git"]
+accept = ["200..=299", "403", "429"]
+max_retries = 3
+timeout = 20

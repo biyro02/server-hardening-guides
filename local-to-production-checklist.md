@@ -140,10 +140,10 @@
 
   ```bash
   # Gitleaks (scans git history, not just working tree)
-  gitleaks detect --source . --verbose
+  gitleaks git . --verbose        # v8.19+; older releases: gitleaks detect --source .
 
   # Trufflehog (scans git history for high-entropy strings)
-  trufflehog git file://. --only-verified
+  trufflehog git file://. --results=verified
   ```
 
 - [ ] **Verify `.gitignore` covers all secret files** before the first commit.
@@ -707,11 +707,13 @@
 - [ ] **Add CAA (Certification Authority Authorization) DNS records** to specify which certificate authorities are allowed to issue SSL certificates for your domain. This prevents attackers from getting a certificate from a different CA even if they can influence DNS.
 
   ```
-  # TXT record at yourdomain.com:
+  # CAA records (record type CAA, not TXT) at yourdomain.com:
   0 issue "letsencrypt.org"
   0 issuewild ";"         ; disallow wildcard certs from anyone
   0 iodef "mailto:admin@yourdomain.com"   ; report unauthorized attempts
   ```
+
+  If the site is proxied by Cloudflare, its edge certificates are issued by CAs other than Let's Encrypt. Cloudflare adds the CAA records it needs automatically when you have CAA records of your own; check the DNS tab after adding yours so edge certificate renewals do not fail.
 
   Verify:
   ```bash
@@ -849,7 +851,7 @@ find /var/www/html -name "*.php" -mtime -7 -type f | sort
 | Mistake | What Goes Wrong | How to Detect |
 |---|---|---|
 | Committing `.env` to git | All credentials exposed in repository history | `git log --all --full-history -- .env` — any result means it was committed |
-| Using `:latest` Docker tags | Surprise upgrades break the app on next `docker pull` | `docker-compose config | grep image` — any `:latest` is a risk |
+| Using `:latest` Docker tags | Surprise upgrades break the app on next `docker pull` | `docker-compose config \| grep image` — any `:latest` is a risk |
 | Database port bound to `0.0.0.0` | Database accessible from the internet | `docker ps --format "{{.Ports}}"` — look for `0.0.0.0:3306` |
 | `WP_DEBUG = true` in production | Stack traces leak to all visitors | `curl -s https://yourdomain.com/wp-config.php` — should 404 or not expose this |
 | Salts not rotated from defaults | Attacker can forge authentication cookies | `curl -s https://api.wordpress.org/secret-key/1.1/salt/` — if your salts match any default, rotate |
@@ -860,10 +862,10 @@ find /var/www/html -name "*.php" -mtime -7 -type f | sort
 | Same secrets across environments | Dev breach = prod breach | Compare `.env.local` and `.env.production` — no shared passwords or tokens |
 | No offsite backup | Server loss = data loss | Check last backup file age and verify it exists somewhere other than the server |
 | Fail2ban backend = systemd with file logpath | Jail silently never fires | `fail2ban-client status sshd` — if `Currently banned: 0` after known attack attempts, check backend |
-| `?author=` redirect not blocked | Usernames enumerated passively | `curl -v "https://yourdomain.com/?author=1" 2>&1 | grep -i location` — should not reveal username |
-| Version numbers in asset URLs | Plugin/WP version fingerprinted by scanners | `curl -s https://yourdomain.com | grep "ver="` — should return nothing |
+| `?author=` redirect not blocked | Usernames enumerated passively | `curl -v "https://yourdomain.com/?author=1" 2>&1 \| grep -i location` — should not reveal username |
+| Version numbers in asset URLs | Plugin/WP version fingerprinted by scanners | `curl -s https://yourdomain.com \| grep "ver="` — should return nothing |
 | No rate limiting on login | Unlimited brute-force attempts | `ab -n 100 -c 10 https://yourdomain.com/wp-login.php` — should trigger 429 or bans after a few attempts |
-| Containers using `privileged: true` | Container escape to host root | `docker inspect NAME | grep Privileged` — should be `false` |
+| Containers using `privileged: true` | Container escape to host root | `docker inspect NAME \| grep Privileged` — should be `false` |
 | No health checks defined | Crashed container not restarted | `docker ps --filter health=unhealthy` — test your health check endpoint manually |
 
 ---
